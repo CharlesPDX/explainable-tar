@@ -12,7 +12,7 @@ from nltk.stem.porter import *
 porter_stemmer = PorterStemmer()
 from nltk.tokenize import word_tokenize
 
-from autostop.tar_framework.utils import *
+from tar_framework.utils import *
 
 
 def preprocess_text(text):

@@ -5,14 +5,18 @@ The implementation is based on the following paper:
 Technology-Assisted Review. CoRR abs/1504.06868 (2015). arXiv:1504.06868 http://arxiv.org/abs/1504.06868
 
 """
+import sys
+import os
+sys.path.insert(0, os.path.join(os.getcwd(), 'autostop'))
+print(sys.path)
 import csv
 import math
 import numpy as np
 from operator import itemgetter
-from autostop.tar_framework.assessing import DataLoader, Assessor
-from autostop.tar_framework.ranking import Ranker
-from autostop.tar_model.utils import *
-from autostop.tar_framework.utils import *
+from tar_framework.assessing import DataLoader, Assessor
+from tar_framework.ranking import Ranker
+from tar_model.utils import *
+from tar_framework.utils import *
 
 
 def autotar_method(data_name, topic_set, topic_id,
@@ -120,6 +124,7 @@ def autotar_method(data_name, topic_set, topic_id,
     shown_dids = assessor.get_assessed_dids()
     check_func = assessor.assess_state_check_func()
     tar_run_file = name_tar_run_file(data_name=data_name, model_name=model_name, topic_set=topic_set, exp_id=random_state, topic_id=topic_id)
+    LOGGER.info(f'writing results to: {tar_run_file}')
     with open(tar_run_file, 'w', encoding='utf8') as f:
         write_tar_run_file(f=f, topic_id=topic_id, check_func=check_func, shown_dids=shown_dids)
 

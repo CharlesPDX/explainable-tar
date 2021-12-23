@@ -1,10 +1,12 @@
 # coding=utf-8
-
+import sys
+import os
+sys.path.insert(0, os.path.join(os.getcwd(), 'autostop'))
 import json
 import copy
 import numpy as np
 from collections import defaultdict
-from autostop.tar_framework.utils import *
+from tar_framework.utils import *
 
 
 class DataLoader(object):
@@ -188,7 +190,7 @@ class Assessor(DataLoader):
 
 if __name__ == '__main__':
     topic_id = 'CD007394'
-    mdir = '/Users/danli/Documents/Project/autostop/release_version/data/clef2017'
+    mdir = os.path.join(os.getcwd(), 'data/clef2017')
     query_file = os.path.join(mdir, 'topics', topic_id)
     qrel_file = os.path.join(mdir, 'qrels', topic_id)
     doc_id_file = os.path.join(mdir, 'docids', topic_id)
