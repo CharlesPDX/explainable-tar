@@ -9,6 +9,8 @@ from sklearn.svm import SVC
 
 from rank_bm25 import BM25Okapi
 from nltk.stem.porter import *
+
+from tar_framework.fuzzy_artmap import FuzzyArtMap
 porter_stemmer = PorterStemmer()
 from nltk.tokenize import word_tokenize
 
@@ -67,11 +69,13 @@ class Ranker(object):
             self.model = SVC(probability=True, gamma='scale', random_state=self.random_state)
         elif self.model_type == 'lambdamart':
             self.model = None
+        elif self.model_type == 'fam':
+            self.model = None
         else:
             raise NotImplementedError
 
     def set_did_2_feature(self, dids, texts, corpus_texts):
-        tfidf_vectorizer = TfidfVectorizer(stop_words='english', min_df=int(self.min_df))
+        tfidf_vectorizer = TfidfVectorizer(stop_words='english', min_df=0.001, max_df=0.9) #min_df=int(self.min_df))
         tfidf_vectorizer.fit(corpus_texts)
 
         features = tfidf_vectorizer.transform(texts)
@@ -106,6 +110,10 @@ class Ranker(object):
                 min_samples_leaf=64,
                 verbose=0,
                 random_state=self.random_state)
+        elif self.model_type == "fam" and not self.model:
+            number_of_features = features.shape[1]
+            self.model = FuzzyArtMap(number_of_features*2, 36, rho_a_bar=0.95)
+            model = self.model
         else:
             model = self.model
         model.fit(features, labels)
@@ -113,7 +121,7 @@ class Ranker(object):
         return
 
     def predict(self, features):
-        probs = self.model.predict_proba(features)
+        probs = self.model.predict_proba(features) # TODO: check shape & verify
         rel_class_inx = list(self.model.classes_).index(REL)
         scores = probs[:, rel_class_inx]
         return scores
