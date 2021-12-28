@@ -2,6 +2,7 @@
 
 import pyltr
 import scipy
+import numpy as np
 from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
@@ -82,7 +83,7 @@ class Ranker(object):
         for did, feature in zip(dids, features):
             self.did2feature[did] = feature
 
-        logging.info('Ranker.set_feature_dict is done.')
+        logging.info(f'Ranker.set_feature_dict is done. - {features.shape[0]} documents, {features.shape[1]:,} dimensions')
         return
 
     def get_feature_by_did(self, dids):
@@ -121,8 +122,12 @@ class Ranker(object):
         return
 
     def predict(self, features):
-        probs = self.model.predict_proba(features) # TODO: check shape & verify
+        probs = self.model.predict_proba(features)
         rel_class_inx = list(self.model.classes_).index(REL)
         scores = probs[:, rel_class_inx]
         return scores
 
+    def predict_with_doc_id(self, features, doc_ids):
+        probs = self.model.predict_proba(features, doc_ids)
+        scores = probs[:, np.r_[0:1, 2:3]]
+        return scores

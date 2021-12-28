@@ -159,28 +159,32 @@ class FuzzyArtMap:
         for document_index, input_vector in enumerate(input_vectors):
             self.train(FuzzyArtMap.complement_encode(input_vector.toarray()), FuzzyArtMap.complement_encode(np.array([[class_vectors[document_index]]])))
 
-    def predict_proba(self, corpus: np.array):
-        chunk_size = 1000
+    def predict_proba(self, corpus: np.array, doc_ids: list):
+        chunk_size = 500
         tasks = []
         predictions = []
         for i in range(0, corpus.shape[0], chunk_size):
             # predictions.extend(self.get_predictions(corpus[i:i+chunk_size, :]))
-            tasks.append(self.get_predictions(corpus[i:i+chunk_size, :]))
+            tasks.append(self.get_predictions(corpus[i:i+chunk_size, :], doc_ids[i:i+chunk_size]))
                 
         for task in tasks:
             predictions.extend(task.result())
-            
-        return np.array([predictions]).transpose() #needs to be in shape (number_of_docs, 1)
+        
+        return np.array(predictions) #needs to be in shape (number_of_docs, 1)  
+        # return np.array([predictions]).transpose() #needs to be in shape (number_of_docs, 1)
 
 
     @unsync(cpu_bound=True)
-    def get_predictions(self, corpus):
+    def get_predictions(self, corpus, doc_ids):
         # print(f"{datetime.datetime.now()} - {os.getpid()} - {len(document_index_chunk)}")
         predictions = []
-        for input_vector in corpus:
+        for document_index, input_vector in enumerate(corpus):
             input_vector = FuzzyArtMap.complement_encode(input_vector.toarray())
             prediction, membership_degree = self.predict(input_vector)
+            doc_id = doc_ids[document_index]
             if prediction[0][0]:
-                predictions.append((membership_degree))
+                predictions.append((membership_degree, 0, doc_id))
+            else:
+                predictions.append((0, membership_degree, doc_id))
 
         return predictions
