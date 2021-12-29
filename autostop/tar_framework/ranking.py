@@ -129,5 +129,8 @@ class Ranker(object):
 
     def predict_with_doc_id(self, features, doc_ids):
         probs = self.model.predict_proba(features, doc_ids)
-        scores = probs[:, np.r_[0:1, 2:3]]
+        if probs.shape[0] != 0:
+            scores = probs[:, np.r_[0:1, 2:3]]
+        else:
+            scores = []
         return scores

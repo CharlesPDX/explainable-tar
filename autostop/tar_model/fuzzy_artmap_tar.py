@@ -1,5 +1,5 @@
 # coding=utf-8
-
+from datetime import datetime
 from logging import Logger
 import sys
 import os
@@ -64,7 +64,7 @@ def fuzzy_artmap_method(data_name, topic_set, topic_id,
     batch_size = 100
         
     # starting the TAR process
-
+    start_time = datetime.now()
     # perform initial model training, with some positive examples
     shuffled_doc_ids = random.sample(assessor.get_complete_dids(), len(assessor.get_complete_dids()))
     initial_positive_doc_ids = list(filter(lambda doc_id: assessor.did2label[doc_id] == REL, shuffled_doc_ids))[:10]
@@ -87,14 +87,17 @@ def fuzzy_artmap_method(data_name, topic_set, topic_id,
         csvwriter.writerow(("iteration", "batch_size", "total_num", "sampled_num", "total_true_r", "running_true_r", "ap", "running_true_recall", "sampled_percentage"))
         while not stopping:
             t += 1
-            LOGGER.info('TAR: iteration={}'.format(t))            
+            LOGGER.info(f'TAR: iteration={t}')
 
             unassessed_document_ids = assessor.get_unassessed_dids()
             test_features = ranker.get_feature_by_did(unassessed_document_ids)
             scores = ranker.predict_with_doc_id(test_features, unassessed_document_ids)
             
             zipped = sorted(scores, key=itemgetter(0), reverse=True)
-            _, ranked_dids = zip(*zipped)
+            if len(zipped) > 0:
+                _, ranked_dids = zip(*zipped)
+            else:
+                ranked_dids = []
 
             # cutting off instead of sampling
             selected_dids = assessor.get_top_assessed_dids(ranked_dids, batch_size)
@@ -124,20 +127,22 @@ def fuzzy_artmap_method(data_name, topic_set, topic_id,
             if running_true_r == total_true_r:
                 LOGGER.info(f"Stopping - all relevant documents found")
                 stopping = True
-            if zipped[0][0] == 0 or zipped[0][0] == "0":
+            if len(zipped) == 0 or zipped[0][0] == 0 or zipped[0][0] == "0":
                 if running_true_r == last_r:
                     LOGGER.info("No more relevant documents found")
                     stopping = True
 
             last_r = running_true_r
 
-            # train model with new assessments            
-            LOGGER.debug("Starting training assessed document training")
-            assessed_labels = [assessor.get_rel_label(doc_id) for doc_id in selected_dids]
-            assesed_features = ranker.get_feature_by_did(selected_dids)
-            ranker.train(assesed_features, assessed_labels)
-            LOGGER.debug(f"Iteration training complete - {len(selected_dids):,} documents")
-
+            # train model with new assessments
+            if not stopping:
+                LOGGER.info("Starting training assessed document training")
+                assessed_labels = [assessor.get_rel_label(doc_id) for doc_id in selected_dids]
+                assesed_features = ranker.get_feature_by_did(selected_dids)
+                ranker.train(assesed_features, assessed_labels)
+                LOGGER.info(f"Iteration training complete - {len(selected_dids):,} documents")
+    
+    stop_time = datetime.now()
     shown_dids = assessor.get_assessed_dids()
     check_func = assessor.assess_state_check_func()
     tar_run_file = name_tar_run_file(data_name=data_name, model_name=model_name, topic_set=topic_set,
@@ -145,7 +150,7 @@ def fuzzy_artmap_method(data_name, topic_set, topic_id,
     with open(tar_run_file, 'w', encoding='utf8') as f:
         write_tar_run_file(f=f, topic_id=topic_id, check_func=check_func, shown_dids=shown_dids)
 
-    LOGGER.info('TAR is finished.')
+    LOGGER.info(f'TAR is finished. Elapsed: {stop_time-start_time}')
 
     return
 

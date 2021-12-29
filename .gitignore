@@ -4,6 +4,9 @@ ret/
 #20 Newsgroup TREC formatted data
 data/20newsgroups/
 
+#Reuters-21578 TREC formatted data
+data/reuters21578/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
