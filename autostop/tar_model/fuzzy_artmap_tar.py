@@ -57,6 +57,7 @@ def fuzzy_artmap_method(data_name, topic_set, topic_id,
     ranker = Ranker(model_type="fam", random_state=random_state, min_df=min_df)
     ranker.set_did_2_feature(dids=complete_pseudo_dids, texts=complete_pseudo_texts, corpus_texts=complete_pseudo_texts)
     ranker.set_features_by_name('complete_dids', complete_dids)
+    ranker.cache_corpus_in_model(complete_dids)
 
     # local parameters
     stopping = False
@@ -90,8 +91,9 @@ def fuzzy_artmap_method(data_name, topic_set, topic_id,
             LOGGER.info(f'TAR: iteration={t}')
 
             unassessed_document_ids = assessor.get_unassessed_dids()
-            test_features = ranker.get_feature_by_did(unassessed_document_ids)
-            scores = ranker.predict_with_doc_id(test_features, unassessed_document_ids)
+            # test_features = ranker.get_feature_by_did(unassessed_document_ids)
+            # scores = ranker.predict_with_doc_id(test_features, unassessed_document_ids)
+            scores = ranker.predict_with_doc_id(unassessed_document_ids)
             
             zipped = sorted(scores, key=itemgetter(0), reverse=True)
             if len(zipped) > 0:
@@ -140,6 +142,7 @@ def fuzzy_artmap_method(data_name, topic_set, topic_id,
                 assessed_labels = [assessor.get_rel_label(doc_id) for doc_id in selected_dids]
                 assesed_features = ranker.get_feature_by_did(selected_dids)
                 ranker.train(assesed_features, assessed_labels)
+                ranker.remove_docs_from_cache(selected_dids)
                 LOGGER.info(f"Iteration training complete - {len(selected_dids):,} documents")
     
     stop_time = datetime.now()
@@ -158,12 +161,12 @@ if __name__ == '__main__':
     # data_name = 'clef2017'
     # topic_id = 'CD008081'
     # topic_set = 'test'
-    # data_name = '20newsgroups'
-    # topic_id = 'alt.atheism'
-    # topic_set = 'alt.atheism'
-    data_name = 'reuters21578'
-    topic_id = 'grain'
-    topic_set = 'grain'
+    data_name = '20newsgroups'
+    topic_id = 'alt.atheism'
+    topic_set = 'alt.atheism'
+    # data_name = 'reuters21578'
+    # topic_id = 'grain'
+    # topic_set = 'grain'
     query_file = os.path.join(PARENT_DIR, 'data', data_name, 'topics', topic_id)
     qrel_file = os.path.join(PARENT_DIR, 'data', data_name, 'qrels', topic_id)
     doc_id_file = os.path.join(PARENT_DIR, 'data', data_name, 'docids', topic_id)

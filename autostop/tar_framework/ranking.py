@@ -56,13 +56,15 @@ class Ranker(object):
     """
     Manager the ranking module of the TAR framework.
     """
-    def __init__(self, model_type='lr', min_df=2, C=1.0, random_state=0):
+    def __init__(self, model_type='lr', min_df=2, C=1.0, random_state=0, rho_a_bar=0.95, number_of_mapping_nodes=36):
         self.model_type = model_type
         self.random_state = random_state
         self.min_df = min_df
         self.C = C
         self.did2feature = {}
         self.name2features = {}
+        self.rho_a_bar = rho_a_bar
+        self.number_of_mapping_nodes = number_of_mapping_nodes
 
         if self.model_type == 'lr':
             self.model = LogisticRegression(solver='lbfgs', random_state=self.random_state, C=self.C, max_iter=10000)
@@ -98,6 +100,23 @@ class Ranker(object):
     def get_features_by_name(self, name):
         return self.name2features[name]
 
+    def cache_corpus_in_model(self, document_ids):
+        if self.model_type == "fam":
+            if not self.model:
+                number_of_features = self.did2feature[document_ids[0]].shape[1]
+                self.model = FuzzyArtMap(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar)
+            corpus_features = self.get_feature_by_did(document_ids)
+            document_index_mapping = {document_id: index for index, document_id in enumerate(document_ids)}
+            self.model.cache_corpus(corpus_features, document_index_mapping)
+        else:
+            pass
+
+    def remove_docs_from_cache(self, document_ids):
+        if self.model_type == "fam":
+            self.model.remove_documents_from_cache(document_ids)
+        else:
+            pass
+
     def train(self, features, labels):
         if self.model_type == 'lambdamart':
             # retrain the model at each TAR iteration. Otherwise, the training speed will be slowed drastically.
@@ -113,7 +132,7 @@ class Ranker(object):
                 random_state=self.random_state)
         elif self.model_type == "fam" and not self.model:
             number_of_features = features.shape[1]
-            self.model = FuzzyArtMap(number_of_features*2, 36, rho_a_bar=0.95)
+            self.model = FuzzyArtMap(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar)
             model = self.model
         else:
             model = self.model
@@ -127,8 +146,8 @@ class Ranker(object):
         scores = probs[:, rel_class_inx]
         return scores
 
-    def predict_with_doc_id(self, features, doc_ids):
-        probs = self.model.predict_proba(features, doc_ids)
+    def predict_with_doc_id(self, doc_ids):
+        probs = self.model.predict_proba(doc_ids)
         if probs.shape[0] != 0:
             scores = probs[:, np.r_[0:1, 2:3]]
         else:

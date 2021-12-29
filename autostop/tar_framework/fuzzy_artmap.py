@@ -6,6 +6,7 @@
 from typing import List
 
 import numpy as np
+from scipy.sparse.csr import csr_matrix
 from unsync import unsync
 
 from .utils import *
@@ -28,6 +29,35 @@ class FuzzyArtMap:
 
         self.classes_ = np.array([1])
         self.updated_nodes = set()
+
+    def cache_corpus(self, corpus: csr_matrix, document_index_mapping: dict):
+        self.corpus = self.complement_encode(corpus.toarray())
+        self.document_index_mapping = document_index_mapping
+        self.excluded_document_ids = set()
+        N = self.weight_a.shape[0]
+        self.S_cache = np.zeros((self.corpus.shape[0], N))
+        self.input_sum_cache = np.sum(self.corpus, axis=1) #np.zeros((self.corpus.shape[0], 1))
+
+        for i in range(self.corpus.shape[0]):
+            A_for_each_F2_node = self.corpus[i] * np.ones((N, 1))
+            A_AND_w = np.minimum(A_for_each_F2_node, self.weight_a)
+            S = np.sum(A_AND_w, axis=1)
+            self.S_cache[i] = S
+
+    def remove_documents_from_cache(self, document_ids):
+        for document_id in document_ids:
+            self.excluded_document_ids.add(document_id)
+
+    def recompute_S_cache(self):
+        updated_nodes = list(self.updated_nodes)
+        N = self.weight_a.shape[0]
+        for document_id, index in self.document_index_mapping.items():
+            if document_id in self.excluded_document_ids:
+                continue
+            A_for_each_F2_node = self.corpus[index] * np.ones((N, 1))
+            A_AND_w = np.minimum(A_for_each_F2_node[updated_nodes], self.weight_a[updated_nodes])
+            S = np.sum(A_AND_w, axis=1)
+            self.S_cache[index, updated_nodes] = S
 
     # @profile
     def _resonance_search(self, input_vector: np.array, already_reset_nodes: List[int], rho_a: float, allow_category_growth = True):
@@ -83,6 +113,17 @@ class FuzzyArtMap:
 
         return J, membership_degree[0]
 
+    def _cached_resonance_search(self, cached_S, input_vector_sum):
+        T = cached_S / self.choice_denominator
+        # Choice function vector for F2
+        
+        J = np.argmax(T) # Finding the winning node, J
+        # NumPy argmax function works such that J is the lowest index of max T elements, as desired. J is the winning F2 category node
+
+        membership_degree = cached_S[J]/input_vector_sum        
+
+        return J, membership_degree
+
     # @profile
     def train(self, input_vector: np.array, class_vector: np.array):
         rho_a = self.rho_a_bar # We start off with ARTa vigilance at baseline
@@ -132,6 +173,13 @@ class FuzzyArtMap:
         # (Called x_ab in Fuzzy ARTMAP paper)
         return self.weight_ab[J, np.newaxis], membership_degree # Fab activation vector & fuzzy membership value
 
+    def cached_predict(self, document_id):
+        index = self.document_index_mapping[document_id]
+        input_vector_sum = self.input_sum_cache[index]
+        cached_S_value = self.S_cache[index]
+        J, membership_degree = self._cached_resonance_search(cached_S_value, input_vector_sum)
+        return self.weight_ab[J, np.newaxis], membership_degree # Fab activation vector & fuzzy membership value
+
     @staticmethod
     def complement_encode(original_vector: np.array) -> np.array:
         complement = 1-original_vector
@@ -142,34 +190,15 @@ class FuzzyArtMap:
         for document_index, input_vector in enumerate(input_vectors):
             self.train(FuzzyArtMap.complement_encode(input_vector.toarray()), FuzzyArtMap.complement_encode(np.array([[class_vectors[document_index]]])))
         LOGGER.info(f"updated nodes: {','.join([str(J) for J in self.updated_nodes])}")
+        self.recompute_S_cache()
         self.updated_nodes.clear()
 
-    def predict_proba(self, corpus: np.array, doc_ids: list):
-        chunk_size = 700
-        tasks = []
+    def predict_proba(self, doc_ids: list):        
         predictions = []
-        for i in range(0, corpus.shape[0], chunk_size):
-            predictions.extend(self.get_predictions(corpus[i:i+chunk_size, :], doc_ids[i:i+chunk_size]))
-            # tasks.append(self.get_predictions(corpus[i:i+chunk_size, :], doc_ids[i:i+chunk_size]))
-                
-        # for task in tasks:
-        #     predictions.extend(task.result())
+        self.choice_denominator = (self.alpha + np.sum(self.weight_a, axis=1))
+        for document_id in doc_ids:
+            prediction, membership_degree = self.cached_predict(document_id)
+            if prediction[0][0]:
+                predictions.append((membership_degree, 0, document_id))
         
         return np.array(predictions) #needs to be in shape (number_of_docs, 1)  
-        # return np.array([predictions]).transpose() #needs to be in shape (number_of_docs, 1)
-
-
-    # @unsync(cpu_bound=True)
-    def get_predictions(self, corpus, doc_ids):
-        # print(f"{datetime.datetime.now()} - {os.getpid()} - {len(document_index_chunk)}")
-        predictions = []
-        for document_index, input_vector in enumerate(corpus):
-            input_vector = FuzzyArtMap.complement_encode(input_vector.toarray())
-            prediction, membership_degree = self.predict(input_vector)
-            doc_id = doc_ids[document_index]
-            if prediction[0][0]:
-                predictions.append((membership_degree, 0, doc_id))
-            # else:
-            #     predictions.append((0, membership_degree, doc_id))
-
-        return predictions
