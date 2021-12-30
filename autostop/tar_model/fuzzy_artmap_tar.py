@@ -14,7 +14,7 @@ from operator import itemgetter
 # from scipy.stats import norm
 # from sklearn.preprocessing import MinMaxScaler
 from tar_framework.assessing import Assessor
-from tar_framework.ranking import Ranker
+from tar_framework.ranking import Ranker, VectorizerType
 from tar_model.utils import *
 from tar_framework.utils import *
 
@@ -55,9 +55,11 @@ def fuzzy_artmap_method(data_name, topic_set, topic_id,
 
     # preparing document features
     ranker = Ranker(model_type="fam", random_state=random_state, min_df=min_df)
-    ranker.set_did_2_feature(dids=complete_pseudo_dids, texts=complete_pseudo_texts, corpus_texts=complete_pseudo_texts)
+    ranker.set_did_2_feature(dids=complete_pseudo_dids, texts=complete_pseudo_texts, corpus_texts=complete_pseudo_texts) #, vectorizer=VectorizerType.glove)
     ranker.set_features_by_name('complete_dids', complete_dids)
+    LOGGER.info("Caching corpus")
     ranker.cache_corpus_in_model(complete_dids)
+    LOGGER.info("Caching complete")
 
     # local parameters
     stopping = False
@@ -138,12 +140,12 @@ def fuzzy_artmap_method(data_name, topic_set, topic_id,
 
             # train model with new assessments
             if not stopping:
-                LOGGER.info("Starting training assessed document training")
+                LOGGER.info("Starting assessed document training")
                 assessed_labels = [assessor.get_rel_label(doc_id) for doc_id in selected_dids]
                 assesed_features = ranker.get_feature_by_did(selected_dids)
                 ranker.train(assesed_features, assessed_labels)
                 ranker.remove_docs_from_cache(selected_dids)
-                LOGGER.info(f"Iteration training complete - {len(selected_dids):,} documents")
+                LOGGER.info(f"Assed document training complete - {len(selected_dids):,} documents")
     
     stop_time = datetime.now()
     shown_dids = assessor.get_assessed_dids()
@@ -161,15 +163,15 @@ if __name__ == '__main__':
     # data_name = 'clef2017'
     # topic_id = 'CD008081'
     # topic_set = 'test'
-    data_name = '20newsgroups'
-    topic_id = 'alt.atheism'
-    topic_set = 'alt.atheism'
-    # data_name = 'reuters21578'
-    # topic_id = 'grain'
-    # topic_set = 'grain'
+    # data_name = '20newsgroups'
+    # topic_id = 'alt.atheism'
+    # topic_set = 'alt.atheism'
+    data_name = 'reuters21578'
+    topic_id = 'grain'
+    topic_set = 'grain'
     query_file = os.path.join(PARENT_DIR, 'data', data_name, 'topics', topic_id)
     qrel_file = os.path.join(PARENT_DIR, 'data', data_name, 'qrels', topic_id)
     doc_id_file = os.path.join(PARENT_DIR, 'data', data_name, 'docids', topic_id)
     doc_text_file = os.path.join(PARENT_DIR, 'data', data_name, 'doctexts', topic_id)
 
-    fuzzy_artmap_method(data_name, topic_id, topic_set,query_file, qrel_file, doc_id_file, doc_text_file)
+    fuzzy_artmap_method(data_name, topic_id, topic_set, query_file, qrel_file, doc_id_file, doc_text_file)

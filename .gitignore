@@ -1,11 +1,14 @@
-#auto-stop-tar results
+# auto-stop-tar results
 ret/
 
-#20 Newsgroup TREC formatted data
+# 20 Newsgroup TREC formatted data
 data/20newsgroups/
 
-#Reuters-21578 TREC formatted data
+# Reuters-21578 TREC formatted data
 data/reuters21578/
+
+# glove models
+autostop/tar_framework/glove/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

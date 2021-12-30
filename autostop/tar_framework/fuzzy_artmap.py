@@ -30,6 +30,9 @@ class FuzzyArtMap:
         self.classes_ = np.array([1])
         self.updated_nodes = set()
 
+        self.node_increase_step = 5 # number of F2 nodes to add when required
+
+
     def cache_corpus(self, corpus: csr_matrix, document_index_mapping: dict):
         self.corpus = self.complement_encode(corpus.toarray())
         self.document_index_mapping = document_index_mapping
@@ -37,7 +40,7 @@ class FuzzyArtMap:
         N = self.weight_a.shape[0]
         self.S_cache = np.zeros((self.corpus.shape[0], N))
         self.input_sum_cache = np.sum(self.corpus, axis=1) #np.zeros((self.corpus.shape[0], 1))
-
+        
         for i in range(self.corpus.shape[0]):
             A_for_each_F2_node = self.corpus[i] * np.ones((N, 1))
             A_AND_w = np.minimum(A_for_each_F2_node, self.weight_a)
@@ -51,11 +54,12 @@ class FuzzyArtMap:
     def recompute_S_cache(self):
         updated_nodes = list(self.updated_nodes)
         N = self.weight_a.shape[0]
+        A_AND_w = np.empty((len(updated_nodes),self.weight_a.shape[1]))
         for document_id, index in self.document_index_mapping.items():
             if document_id in self.excluded_document_ids:
                 continue
             A_for_each_F2_node = self.corpus[index] * np.ones((N, 1))
-            A_AND_w = np.minimum(A_for_each_F2_node[updated_nodes], self.weight_a[updated_nodes])
+            np.minimum(A_for_each_F2_node[updated_nodes], self.weight_a[updated_nodes], out=A_AND_w)
             S = np.sum(A_AND_w, axis=1)
             self.S_cache[index, updated_nodes] = S
 
@@ -99,10 +103,11 @@ class FuzzyArtMap:
 
             #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             # Creating a new node if we've reset all of them
-            if len(already_reset_nodes) == N:
+            if len(already_reset_nodes) >= N:
                 if allow_category_growth:
-                    self.weight_a = np.concatenate((self.weight_a, np.ones((1,  self.weight_a.shape[1]))), axis=0)
-                    self.weight_ab = np.concatenate((self.weight_ab, np.ones((1, self.weight_ab.shape[1]))), axis=0)
+                    self.weight_a = np.concatenate((self.weight_a, np.ones((self.node_increase_step,  self.weight_a.shape[1]))), axis=0)
+                    self.weight_ab = np.concatenate((self.weight_ab, np.ones((self.node_increase_step, self.weight_ab.shape[1]))), axis=0)
+                    self.S_cache = np.concatenate((self.S_cache, np.ones((self.corpus.shape[0], self.node_increase_step))), axis=1)
                     # Give the new F2a node a w_ab entry, this new node should win
                 else:
                     return -1, None
