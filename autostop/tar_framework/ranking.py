@@ -1,11 +1,16 @@
 # coding=utf-8
 
 from enum import Enum, auto
+import os
+from pathlib import Path
+import pickle
 
 import pyltr
 import scipy
 import numpy as np
+
 from scipy.sparse.csr import csr_matrix
+
 from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.preprocessing import MinMaxScaler
@@ -15,11 +20,12 @@ from sklearn.svm import SVC
 from rank_bm25 import BM25Okapi
 from nltk.stem.porter import *
 import nltk
-
-from tar_framework.fuzzy_artmap import FuzzyArtMap
 porter_stemmer = PorterStemmer()
 from nltk.tokenize import word_tokenize
 
+from sentence_transformers import SentenceTransformer
+
+from tar_framework.fuzzy_artmap import FuzzyArtMap
 from tar_framework.utils import *
 
 
@@ -84,6 +90,7 @@ def bm25_okapi_rank(complete_dids, complete_texts, query):
 class VectorizerType(Enum):
     tf_idf = auto()
     glove = auto()
+    sbert = auto()
 
 
 class Ranker(object):
@@ -100,6 +107,7 @@ class Ranker(object):
         self.rho_a_bar = rho_a_bar
         self.number_of_mapping_nodes = number_of_mapping_nodes
         self.glove_model = None
+        self.missing_tokens = []
 
         if self.model_type == 'lr':
             self.model = LogisticRegression(solver='lbfgs', random_state=self.random_state, C=self.C, max_iter=10000)
@@ -112,33 +120,68 @@ class Ranker(object):
         else:
             raise NotImplementedError
 
-    def set_did_2_feature(self, dids, texts, corpus_texts, vectorizer: VectorizerType = VectorizerType.tf_idf):
+    def set_did_2_feature(self, dids, texts, corpus_texts, vectorizer: VectorizerType = VectorizerType.tf_idf, corpus_name=None):
         if vectorizer == VectorizerType.tf_idf:
             tfidf_vectorizer = TfidfVectorizer(stop_words='english', min_df=0.001, max_df=0.9) #min_df=int(self.min_df))
             tfidf_vectorizer.fit(corpus_texts)
             features = tfidf_vectorizer.transform(texts)
         elif vectorizer == VectorizerType.glove:
             features = self._glove_vectorize_documents(texts)
+        elif vectorizer == VectorizerType.sbert:
+            if corpus_name:
+                pickled_corpus = os.path.join(PARENT_DIR, 'data', 'pickels', corpus_name + '.pkl')
+                try:
+                    with open(pickled_corpus, 'rb') as pickled_corpus_file:
+                        stored_data = pickle.load(pickled_corpus_file)
+                        features = stored_data['features']
+                except FileNotFoundError as e:
+                    pickels_path = os.path.join(PARENT_DIR, 'data', 'pickels')
+                    if not Path(pickels_path).exists():
+                        os.mkdir(pickels_path)
+                    LOGGER.info(e)
+                    features = self.sbert_featurize_corpus(texts)
+                    with open(pickled_corpus, 'wb') as pickled_corpus_file:
+                        pickle.dump({'features': features}, pickled_corpus_file, protocol=pickle.HIGHEST_PROTOCOL)
+            else:
+                features = self.sbert_featurize_corpus(texts)
+
 
         for did, feature in zip(dids, features):
-            if vectorizer == VectorizerType.glove:
+            if vectorizer == VectorizerType.glove or vectorizer == VectorizerType.sbert:
                 feature_min = feature.min()
                 assert feature_min >= 0, "Negative feature value encountered"
                 assert feature_min <= 1, "Feature min greater than one"
                 feature_max = feature.max()
                 assert feature_max >= 0, "Negative feature value encountered"
                 assert feature_max <= 1, "Feature max greater than one"
-            self.did2feature[did] = feature
-
-        logging.info(f'Ranker.set_feature_dict is done. - {len(self.did2feature)} documents, {self.did2feature[dids[0]].shape} dimensions')
+            if len(feature.shape) == 1:
+                self.did2feature[did] = feature[:, np.newaxis]
+            else:
+                self.did2feature[did] = feature
+        
+        if vectorizer == VectorizerType.glove:
+            unique_missing_tokens = set(self.missing_tokens)
+            LOGGER.info(f"{len(unique_missing_tokens):,} tokens not in GloVe model")
+        
+        # TODO: figure out better shape logging
+        logging.info(f'Ranker.set_feature_dict is done. - {len(self.did2feature):,} documents, {self.did2feature[dids[0]].shape} dimensions')
         return
+
+    def sbert_featurize_corpus(self, texts):
+        model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+        scalar = MinMaxScaler(feature_range=(0,1), copy=False)
+        features =  model.encode(texts, convert_to_numpy=True)
+        scalar.fit_transform(features)
+        np.clip(features, 0.0, 1.0, out=features)
+        return csr_matrix(features)
 
     def _glove_vectorize_documents(self, texts):
         if not self.glove_model:
             self._load_glove_model(os.path.join(os.getcwd(), 'autostop/tar_framework/glove/glove.6B.300d.txt'))
-        
+
         for text in texts:
             preprocessed_tokens = preprocess_without_stemming(text)
+            self.missing_tokens.extend([token for token in preprocessed_tokens if token not in self.glove_model])
             vectorized_tokens = np.array([self.glove_model[token] for token in preprocessed_tokens if token in self.glove_model])
             yield csr_matrix(vectorized_tokens.mean(axis=0,keepdims=True))
 
@@ -156,7 +199,7 @@ class Ranker(object):
                 glove_words.append(word)
                 glove_vectors.append(embedding)
         glove_vector_array = np.array(glove_vectors)
-        LOGGER.info(f"{len(glove_words)} words loaded")
+        LOGGER.info(f"{len(glove_words):,} words loaded")
         LOGGER.info("Scaling GloVe features")
         scalar = MinMaxScaler(feature_range=(0,1), copy=False)
         scalar.fit_transform(glove_vector_array)

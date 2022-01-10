@@ -1,6 +1,9 @@
 # auto-stop-tar results
 ret/
 
+# Exclude saved, featurized data
+data/pickels/
+
 # 20 Newsgroup TREC formatted data
 data/20newsgroups/
 

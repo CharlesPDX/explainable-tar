@@ -55,7 +55,7 @@ def fuzzy_artmap_method(data_name, topic_set, topic_id,
 
     # preparing document features
     ranker = Ranker(model_type="fam", random_state=random_state, min_df=min_df)
-    ranker.set_did_2_feature(dids=complete_pseudo_dids, texts=complete_pseudo_texts, corpus_texts=complete_pseudo_texts) #, vectorizer=VectorizerType.glove)
+    ranker.set_did_2_feature(dids=complete_pseudo_dids, texts=complete_pseudo_texts, corpus_texts=complete_pseudo_texts, vectorizer=VectorizerType.sbert, corpus_name=data_name) # vectorizer=VectorizerType.glove)
     ranker.set_features_by_name('complete_dids', complete_dids)
     LOGGER.info("Caching corpus")
     ranker.cache_corpus_in_model(complete_dids)
@@ -145,7 +145,7 @@ def fuzzy_artmap_method(data_name, topic_set, topic_id,
                 assesed_features = ranker.get_feature_by_did(selected_dids)
                 ranker.train(assesed_features, assessed_labels)
                 ranker.remove_docs_from_cache(selected_dids)
-                LOGGER.info(f"Assed document training complete - {len(selected_dids):,} documents")
+                LOGGER.info(f"Assessed document training complete - {len(selected_dids):,} documents")
     
     stop_time = datetime.now()
     shown_dids = assessor.get_assessed_dids()
