@@ -23,7 +23,10 @@ import nltk
 porter_stemmer = PorterStemmer()
 from nltk.tokenize import word_tokenize
 
+import torch
 from sentence_transformers import SentenceTransformer
+
+import gensim.downloader as gensim_api
 
 from tar_framework.fuzzy_artmap import FuzzyArtMap
 from tar_framework.utils import *
@@ -91,6 +94,7 @@ class VectorizerType(Enum):
     tf_idf = auto()
     glove = auto()
     sbert = auto()
+    word2vec = auto()
 
 
 class Ranker(object):
@@ -107,6 +111,7 @@ class Ranker(object):
         self.rho_a_bar = rho_a_bar
         self.number_of_mapping_nodes = number_of_mapping_nodes
         self.glove_model = None
+        self.word2vec_model = None
         self.missing_tokens = []
 
         if self.model_type == 'lr':
@@ -139,15 +144,17 @@ class Ranker(object):
                     if not Path(pickels_path).exists():
                         os.mkdir(pickels_path)
                     LOGGER.info(e)
-                    features = self.sbert_featurize_corpus(texts)
+                    features = self.sbert_vectorize_documents(texts)
                     with open(pickled_corpus, 'wb') as pickled_corpus_file:
                         pickle.dump({'features': features}, pickled_corpus_file, protocol=pickle.HIGHEST_PROTOCOL)
             else:
-                features = self.sbert_featurize_corpus(texts)
+                features = self.sbert_vectorize_documents(texts)
+        elif vectorizer == VectorizerType.word2vec:
+            features = self._word2vec_vectorize_documents(texts)
 
 
         for did, feature in zip(dids, features):
-            if vectorizer == VectorizerType.glove or vectorizer == VectorizerType.sbert:
+            if vectorizer == VectorizerType.glove or vectorizer == VectorizerType.sbert or VectorizerType.word2vec:
                 feature_min = feature.min()
                 assert feature_min >= 0, "Negative feature value encountered"
                 assert feature_min <= 1, "Feature min greater than one"
@@ -159,21 +166,41 @@ class Ranker(object):
             else:
                 self.did2feature[did] = feature
         
-        if vectorizer == VectorizerType.glove:
+        if vectorizer == VectorizerType.glove or vectorizer == VectorizerType.word2vec:
             unique_missing_tokens = set(self.missing_tokens)
-            LOGGER.info(f"{len(unique_missing_tokens):,} tokens not in GloVe model")
+            LOGGER.info(f"{len(unique_missing_tokens):,} tokens not in {vectorizer} model")
+            self.missing_tokens.clear()
         
         # TODO: figure out better shape logging
         logging.info(f'Ranker.set_feature_dict is done. - {len(self.did2feature):,} documents, {self.did2feature[dids[0]].shape} dimensions')
         return
 
-    def sbert_featurize_corpus(self, texts):
-        model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+    def sbert_vectorize_documents(self, texts):
+        if torch.cuda.is_available():
+            model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2', device='cuda')
+        else:
+            model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
         scalar = MinMaxScaler(feature_range=(0,1), copy=False)
         features =  model.encode(texts, convert_to_numpy=True)
         scalar.fit_transform(features)
         np.clip(features, 0.0, 1.0, out=features)
         return csr_matrix(features)
+
+    def _word2vec_vectorize_documents(self, texts):
+        if not self.word2vec_model:
+            self.word2vec_model = gensim_api.load('word2vec-google-news-300')
+        
+        vectorized_documents = np.zeros((len(texts), 300))
+        for text_index, text in enumerate(texts):
+            preprocessed_tokens = preprocess_without_stemming(text)
+            self.missing_tokens.extend([token for token in preprocessed_tokens if token not in self.word2vec_model])
+            vectorized_tokens = np.array([self.word2vec_model[token] for token in preprocessed_tokens if token in self.word2vec_model])
+            vectorized_documents[text_index] = vectorized_tokens.mean(axis=0,keepdims=True)
+        
+
+        scalar = MinMaxScaler(feature_range=(0,1), copy=False)
+        scalar.fit_transform(vectorized_documents)
+        return csr_matrix(vectorized_documents)
 
     def _glove_vectorize_documents(self, texts):
         if not self.glove_model:

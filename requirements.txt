@@ -8,3 +8,4 @@ rank_bm25
 transformers
 torch
 sentence-transformers
+gensim
