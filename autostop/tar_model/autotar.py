@@ -11,6 +11,8 @@ sys.path.insert(0, os.path.join(os.getcwd(), 'autostop'))
 print(sys.path)
 import csv
 import math
+from datetime import datetime
+
 import numpy as np
 from operator import itemgetter
 from tar_framework.assessing import DataLoader, Assessor
@@ -74,6 +76,8 @@ def autotar_method(data_name, topic_set, topic_id,
     ranker.set_did_2_feature(dids=complete_pseudo_dids, texts=complete_pseudo_texts, corpus_texts=corpus_texts)
     ranker.set_features_by_name('complete_dids', complete_dids)
 
+    start_time = datetime.now()
+
     # local parameters are set according to [1]
     stopping = False
     t = 0
@@ -83,8 +87,10 @@ def autotar_method(data_name, topic_set, topic_id,
     interaction_file = name_interaction_file(data_name=data_name, model_name=model_name, topic_set=topic_set, exp_id=random_state, topic_id=topic_id)
     with open(interaction_file, 'w', encoding='utf8') as f:
         csvwriter = csv.writer(f)
+        csvwriter.writerow(("iteration", "batch_size", "total_num", "sampled_num", "total_true_r", "running_true_r", "ap", "running_true_recall"))
         while not stopping:
             t += 1
+            # LOGGER.info(f'TAR: iteration={t}')
 
             train_dids, train_labels = assessor.get_training_data(temp_doc_num)
             train_features = ranker.get_feature_by_did(train_dids)
@@ -120,6 +126,7 @@ def autotar_method(data_name, topic_set, topic_id,
                 if sampled_num >= int(total_num * stopping_percentage):
                     stopping = True
 
+    stop_time = datetime.now()
     # tar run file
     shown_dids = assessor.get_assessed_dids()
     check_func = assessor.assess_state_check_func()
@@ -128,16 +135,26 @@ def autotar_method(data_name, topic_set, topic_id,
     with open(tar_run_file, 'w', encoding='utf8') as f:
         write_tar_run_file(f=f, topic_id=topic_id, check_func=check_func, shown_dids=shown_dids)
 
-    LOGGER.info('TAR is finished.')
+    LOGGER.info(f'TAR is finished. Elapsed: {stop_time-start_time}')
     return
 
 if __name__ == '__main__':
-    data_name = 'clef2017'
-    topic_id = 'CD008081'
-    topic_set = 'test'
-    query_file = os.path.join(PARENT_DIR, 'data', data_name, 'topics', topic_id)
-    qrel_file = os.path.join(PARENT_DIR, 'data', data_name, 'qrels', topic_id)
-    doc_id_file = os.path.join(PARENT_DIR, 'data', data_name, 'docids', topic_id)
-    doc_text_file = os.path.join(PARENT_DIR, 'data', data_name, 'doctexts', topic_id)
-
-    autotar_method(data_name, topic_id, topic_set,query_file, qrel_file, doc_id_file, doc_text_file)
+    # data_name = 'clef2017'
+    # topic_id = 'CD008081'
+    # topic_set = 'test'
+    # data_name = '20newsgroups'
+    # topic_id = 'alt.atheism'
+    # topic_set = 'alt.atheism'
+    corpus_name = 'reuters21578'
+    collection_name = 'reuters21578'
+    # topic_id = 'grain'
+    # topic_set = 'grain'
+    topic_id = 'zinc'
+    topic_set = 'zinc'
+    # query_file = os.path.join(PARENT_DIR, 'data', data_name, 'topics', topic_id)
+    # qrel_file = os.path.join(PARENT_DIR, 'data', data_name, 'qrels', topic_id)
+    # doc_id_file = os.path.join(PARENT_DIR, 'data', data_name, 'docids', topic_id)
+    # doc_text_file = os.path.join(PARENT_DIR, 'data', data_name, 'doctexts', topic_id)
+    # autotar_method(data_name, topic_id, topic_set,query_file, qrel_file, doc_id_file, doc_text_file)
+    corpus_params = make_file_params(collection_name, corpus_name, topic_id, topic_id)
+    autotar_method(**corpus_params)

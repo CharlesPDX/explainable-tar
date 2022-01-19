@@ -7,7 +7,6 @@ from typing import List
 
 import numpy as np
 from scipy.sparse.csr import csr_matrix
-from unsync import unsync
 
 from .utils import *
 

@@ -262,3 +262,18 @@ def read_interaction_file(data_name, model_name, topic_set, exp_id, topic_id):
         print('Empty df', os.path.join(mdir, filename))
 
     return df
+
+
+def make_tf_idf_vectorizer_params(min_df, max_df, stop_words):
+    tf_idf_params = {"min_df": min_df}
+    if max_df:
+        tf_idf_params["max_df"] = max_df
+    if stop_words:
+        tf_idf_params["stop_words"] = stop_words
+    
+    return tf_idf_params
+
+
+def make_fuzzy_artmap_params(vigilance, number_of_mapping_nodes):
+    fuzzy_artmap_params ={"rho_a_bar": vigilance, "number_of_mapping_nodes": number_of_mapping_nodes, "model_type": "fam"}
+    return fuzzy_artmap_params

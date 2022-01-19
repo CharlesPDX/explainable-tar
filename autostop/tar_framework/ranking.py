@@ -68,7 +68,7 @@ def preprocess_without_stemming(text):
     try:
         tokens = word_tokenize(text)
     except LookupError as e:
-        LOGGER.info(f"Tokenizer corpora not found, downloading - {e}")
+        LOGGER.info(f"Tokenizer corpus not found, downloading - {e}")
         nltk.download("punkt")
         tokens = word_tokenize(text)
 
@@ -125,9 +125,11 @@ class Ranker(object):
         else:
             raise NotImplementedError
 
-    def set_did_2_feature(self, dids, texts, corpus_texts, vectorizer: VectorizerType = VectorizerType.tf_idf, corpus_name=None):
+    def set_did_2_feature(self, dids, texts, corpus_texts, vectorizer: VectorizerType = VectorizerType.tf_idf, corpus_name=None, vectorizer_params=None):
         if vectorizer == VectorizerType.tf_idf:
-            tfidf_vectorizer = TfidfVectorizer(stop_words='english', min_df=0.001, max_df=0.9) #min_df=int(self.min_df))
+            if not vectorizer_params:
+                vectorizer_params = {'stop_words': 'english', 'min_df': int(self.min_df)}
+            tfidf_vectorizer = TfidfVectorizer(**vectorizer_params)
             tfidf_vectorizer.fit(corpus_texts)
             features = tfidf_vectorizer.transform(texts)
         elif vectorizer == VectorizerType.glove:

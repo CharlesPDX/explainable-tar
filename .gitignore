@@ -4,11 +4,17 @@ ret/
 # Exclude saved, featurized data
 data/pickels/
 
+# ignore keepsake experiment results for now
+.keepsake/
+
 # 20 Newsgroup TREC formatted data
 data/20newsgroups/
 
 # Reuters-21578 TREC formatted data
 data/reuters21578/
+
+data/tr/
+data/legal/
 
 # glove models
 autostop/tar_framework/glove/

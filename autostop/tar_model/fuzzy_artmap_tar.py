@@ -1,16 +1,22 @@
 # coding=utf-8
 from datetime import datetime
-from logging import Logger
+# from logging import Logger
 import sys
 import os
 sys.path.insert(0, os.path.join(os.getcwd(), 'autostop'))
+sys.path.insert(0, os.path.join(os.getcwd(), 'autostop/trec_eval/measures'))
+sys.path.insert(0, os.path.join(os.getcwd(), 'autostop/trec_eval/seeker'))
 print(sys.path)
 
+import json
 import csv
 # import math
 import random
 import numpy as np
 from operator import itemgetter
+
+import keepsake
+
 # from scipy.stats import norm
 # from sklearn.preprocessing import MinMaxScaler
 from tar_framework.assessing import Assessor
@@ -18,11 +24,15 @@ from tar_framework.ranking import Ranker, VectorizerType
 from tar_model.utils import *
 from tar_framework.utils import *
 
+from trec_eval.tar_eval import main as eval
+
 def fuzzy_artmap_method(data_name, topic_set, topic_id,
                 query_file, qrel_file, doc_id_file, doc_text_file,  # data parameters
                 stopping_percentage=1.0, stopping_recall=None,  # autostop parameters
-                min_df=2,
-                random_state=0):
+                random_state=0,
+                vectorizer_params=None,
+                classifier_params=None,
+                **kwargs):
     """
     TAR implementation using Fuzzy ARTMAP as the classifier.
     See
@@ -54,8 +64,8 @@ def fuzzy_artmap_method(data_name, topic_set, topic_id,
     total_num = assessor.get_total_doc_num()
 
     # preparing document features
-    ranker = Ranker(model_type="fam", random_state=random_state, min_df=min_df)
-    ranker.set_did_2_feature(dids=complete_pseudo_dids, texts=complete_pseudo_texts, corpus_texts=complete_pseudo_texts, vectorizer=VectorizerType.sbert, corpus_name=data_name) # vectorizer=VectorizerType.glove)
+    ranker = Ranker(**classifier_params)
+    ranker.set_did_2_feature(dids=complete_pseudo_dids, texts=complete_pseudo_texts, corpus_texts=complete_pseudo_texts, vectorizer=vectorizer_type, corpus_name=data_name, vectorizer_params=vectorizer_params)
     ranker.set_features_by_name('complete_dids', complete_dids)
     LOGGER.info("Caching corpus")
     ranker.cache_corpus_in_model(complete_dids)
@@ -78,9 +88,9 @@ def fuzzy_artmap_method(data_name, topic_set, topic_id,
     initial_training_labels.extend(len(initial_negative_doc_ids) * [1])
     initial_training_features = ranker.get_feature_by_did(initial_training_doc_ids)
     
-    LOGGER.debug(f"starting initial training")
+    LOGGER.info(f"starting initial training")
     ranker.train(initial_training_features, initial_training_labels)
-    LOGGER.debug(f"initial training complete - {len(initial_training_doc_ids):,} documents")
+    LOGGER.info(f"initial training complete - {len(initial_training_doc_ids):,} documents")
 
     last_r = 0
     interaction_file = name_interaction_file(data_name=data_name, model_name=model_name, topic_set=topic_set,
@@ -118,6 +128,16 @@ def fuzzy_artmap_method(data_name, topic_set, topic_id,
             # batch_size += math.ceil(batch_size / 10)
 
             # debug: writing values
+            experiment.checkpoint(step=t, primary_metric=("running_true_recall", "maximize"), metrics={"run_group": param_group_name, "metric_type": MetricType.step.name,
+                "iteration": t,
+"batch_size": batch_size,
+"total_num": total_num,
+"sampled_num": sampled_num,
+"total_true_r": total_true_r,
+"running_true_r": running_true_r,
+"ap": ap,
+"running_true_recall": running_true_recall,
+"sampled_percentage": sampled_percentage})
             csvwriter.writerow((t, batch_size, total_num, sampled_num, total_true_r, running_true_r, ap, running_true_recall, sampled_percentage))
             f.flush()
 
@@ -150,12 +170,14 @@ def fuzzy_artmap_method(data_name, topic_set, topic_id,
     stop_time = datetime.now()
     shown_dids = assessor.get_assessed_dids()
     check_func = assessor.assess_state_check_func()
-    tar_run_file = name_tar_run_file(data_name=data_name, model_name=model_name, topic_set=topic_set,
-                                     exp_id=random_state, topic_id=topic_id)
+    tar_run_file = name_tar_run_file(data_name=data_name, model_name=model_name, topic_set=topic_set, exp_id=random_state, topic_id=topic_id)
     with open(tar_run_file, 'w', encoding='utf8') as f:
         write_tar_run_file(f=f, topic_id=topic_id, check_func=check_func, shown_dids=shown_dids)
 
-    LOGGER.info(f'TAR is finished. Elapsed: {stop_time-start_time}')
+    elapsed_run_time = stop_time-start_time
+    final_metrics = eval(tar_run_file, qrel_file)
+    experiment.checkpoint(path=os.path.relpath(tar_run_file), metrics={"run_group": param_group_name, "metric_type": MetricType.final.name, "calculated_metrics": final_metrics, "elapsed_time": str(elapsed_run_time), "elapsed_seconds": elapsed_run_time.total_seconds(), "nodes": ranker.model.weight_ab.shape[0]})        
+    LOGGER.info(f'TAR is finished. Elapsed: {elapsed_run_time}')
 
     return
 
@@ -163,15 +185,25 @@ if __name__ == '__main__':
     # data_name = 'clef2017'
     # topic_id = 'CD008081'
     # topic_set = 'test'
+
     # data_name = '20newsgroups'
     # topic_id = 'alt.atheism'
-    # topic_set = 'alt.atheism'
-    data_name = 'reuters21578'
-    topic_id = 'grain'
-    topic_set = 'grain'
-    query_file = os.path.join(PARENT_DIR, 'data', data_name, 'topics', topic_id)
-    qrel_file = os.path.join(PARENT_DIR, 'data', data_name, 'qrels', topic_id)
-    doc_id_file = os.path.join(PARENT_DIR, 'data', data_name, 'docids', topic_id)
-    doc_text_file = os.path.join(PARENT_DIR, 'data', data_name, 'doctexts', topic_id)
 
-    fuzzy_artmap_method(data_name, topic_id, topic_set, query_file, qrel_file, doc_id_file, doc_text_file)
+    corpus_name = 'reuters21578'
+    collection_name = 'reuters21578'
+
+    topic_id = 'grain'
+    # topic_id = 'zinc'
+
+
+    corpus_params = make_file_params(collection_name, corpus_name, topic_id, topic_id)
+    tf_idf_params = make_tf_idf_vectorizer_params(0.001, 0.9, 'english')
+    vectorizer_params = tf_idf_params
+    # vectorizer_params = {}
+    fuzzy_artmap_params = make_fuzzy_artmap_params(0.95, 40)
+    vectorizer_type = VectorizerType.tf_idf
+    # param_group_name = "anxious aardvark"
+    param_group_name = "bland beetle"
+    experiment = keepsake.init(params={"run_group": param_group_name, "metric_type": MetricType.init.name, "corpus_params": corpus_params, "vectorizer_type": vectorizer_type.name, "vectorizer_params": vectorizer_params, "classifier_params": fuzzy_artmap_params, "random_state": json.dumps(random.getstate())})
+    fuzzy_artmap_method(**corpus_params, vectorizer_type=vectorizer_type, vectorizer_params=None, classifier_params=fuzzy_artmap_params)
+    # fuzzy_artmap_method(data_name, topic_id, topic_set, query_file, qrel_file, doc_id_file, doc_text_file)
