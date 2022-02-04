@@ -65,7 +65,7 @@ def fuzzy_artmap_method(data_name, topic_set, topic_id,
 
     # preparing document features
     ranker = Ranker(**classifier_params)
-    ranker.set_did_2_feature(dids=complete_pseudo_dids, texts=complete_pseudo_texts, corpus_texts=complete_pseudo_texts, vectorizer=vectorizer_type, corpus_name=data_name, vectorizer_params=vectorizer_params)
+    ranker.set_did_2_feature(dids=complete_pseudo_dids, texts=complete_pseudo_texts, corpus_texts=complete_pseudo_texts, vectorizer_type=vectorizer_type, corpus_name=data_name, vectorizer_params=vectorizer_params)
     ranker.set_features_by_name('complete_dids', complete_dids)
     LOGGER.info("Caching corpus")
     ranker.cache_corpus_in_model(complete_dids)
@@ -99,6 +99,7 @@ def fuzzy_artmap_method(data_name, topic_set, topic_id,
         csvwriter = csv.writer(f)
         csvwriter.writerow(("iteration", "batch_size", "total_num", "sampled_num", "total_true_r", "running_true_r", "ap", "running_true_recall", "sampled_percentage"))
         while not stopping:
+            iteration_start_time = datetime.now()
             t += 1
             LOGGER.info(f'TAR: iteration={t}')
 
@@ -128,16 +129,6 @@ def fuzzy_artmap_method(data_name, topic_set, topic_id,
             # batch_size += math.ceil(batch_size / 10)
 
             # debug: writing values
-            experiment.checkpoint(step=t, primary_metric=("running_true_recall", "maximize"), metrics={"run_group": param_group_name, "metric_type": MetricType.step.name,
-                "iteration": t,
-"batch_size": batch_size,
-"total_num": total_num,
-"sampled_num": sampled_num,
-"total_true_r": total_true_r,
-"running_true_r": running_true_r,
-"ap": ap,
-"running_true_recall": running_true_recall,
-"sampled_percentage": sampled_percentage})
             csvwriter.writerow((t, batch_size, total_num, sampled_num, total_true_r, running_true_r, ap, running_true_recall, sampled_percentage))
             f.flush()
 
@@ -166,6 +157,19 @@ def fuzzy_artmap_method(data_name, topic_set, topic_id,
                 ranker.train(assesed_features, assessed_labels)
                 ranker.remove_docs_from_cache(selected_dids)
                 LOGGER.info(f"Assessed document training complete - {len(selected_dids):,} documents")
+            iteration_duration = datetime.now() - iteration_start_time
+            experiment.checkpoint(step=t, primary_metric=("running_true_recall", "maximize"), metrics={"run_group": param_group_name, "metric_type": MetricType.step.name,
+                "iteration": t,
+"batch_size": batch_size,
+"total_num": total_num,
+"sampled_num": sampled_num,
+"total_true_r": total_true_r,
+"running_true_r": running_true_r,
+"ap": ap,
+"running_true_recall": running_true_recall,
+"sampled_percentage": sampled_percentage,
+"iteration_duration_seconds":iteration_duration.total_seconds(),
+"iteration_duration":str(iteration_duration)})
     
     stop_time = datetime.now()
     shown_dids = assessor.get_assessed_dids()
@@ -176,7 +180,7 @@ def fuzzy_artmap_method(data_name, topic_set, topic_id,
 
     elapsed_run_time = stop_time-start_time
     final_metrics = eval(tar_run_file, qrel_file)
-    experiment.checkpoint(path=os.path.relpath(tar_run_file), metrics={"run_group": param_group_name, "metric_type": MetricType.final.name, "calculated_metrics": final_metrics, "elapsed_time": str(elapsed_run_time), "elapsed_seconds": elapsed_run_time.total_seconds(), "nodes": ranker.model.weight_ab.shape[0]})        
+    experiment.checkpoint(path=os.path.relpath(tar_run_file), primary_metric=(None, None), metrics={"run_group": param_group_name, "metric_type": MetricType.final.name, "calculated_metrics": final_metrics, "elapsed_time": str(elapsed_run_time), "elapsed_seconds": elapsed_run_time.total_seconds(), "nodes": ranker.model.weight_ab.shape[0]})
     LOGGER.info(f'TAR is finished. Elapsed: {elapsed_run_time}')
 
     return
@@ -189,21 +193,37 @@ if __name__ == '__main__':
     # data_name = '20newsgroups'
     # topic_id = 'alt.atheism'
 
-    corpus_name = 'reuters21578'
-    collection_name = 'reuters21578'
+    # corpus_name = 'reuters21578'    
+    # collection_name = 'reuters21578'
 
-    topic_id = 'grain'
+    # topic_id = 'grain'
     # topic_id = 'zinc'
 
+    # corpus_name = 'reuters-rcv1'
+    # collection_name = 'reuters-rcv1'
+    # topic_id = 'MCAT'
 
-    corpus_params = make_file_params(collection_name, corpus_name, topic_id, topic_id)
     tf_idf_params = make_tf_idf_vectorizer_params(0.001, 0.9, 'english')
-    vectorizer_params = tf_idf_params
-    # vectorizer_params = {}
-    fuzzy_artmap_params = make_fuzzy_artmap_params(0.95, 40)
     vectorizer_type = VectorizerType.tf_idf
-    # param_group_name = "anxious aardvark"
-    param_group_name = "bland beetle"
-    experiment = keepsake.init(params={"run_group": param_group_name, "metric_type": MetricType.init.name, "corpus_params": corpus_params, "vectorizer_type": vectorizer_type.name, "vectorizer_params": vectorizer_params, "classifier_params": fuzzy_artmap_params, "random_state": json.dumps(random.getstate())})
-    fuzzy_artmap_method(**corpus_params, vectorizer_type=vectorizer_type, vectorizer_params=None, classifier_params=fuzzy_artmap_params)
-    # fuzzy_artmap_method(data_name, topic_id, topic_set, query_file, qrel_file, doc_id_file, doc_text_file)
+    x = tf_idf_params
+    # vectorizer_params = tf_idf_params
+    # experiments = {
+    #     "famg-small-reuters-default-tf-idf-grain": {"corpus_params": {"corpus_name": "reuters21578", "collection_name": "reuters21578", "topic_id": "grain", "topic_set": "grain"}, "vectorizer_params": x}, # grain - 3.01%
+    #     "famg-small-reuters-default-tf-idf-zinc": {"corpus_params": {"corpus_name": "reuters21578", "collection_name": "reuters21578", "topic_id": "zinc", "topic_set": "zinc"}, "vectorizer_params": x}, # zinc - 0.23%
+    #     "famg-small-reuters-default-tf-idf-platinum": {"corpus_params": {"corpus_name": "reuters21578", "collection_name": "reuters21578", "topic_id": "platinum", "topic_set": "platinum"}, "vectorizer_params": x} # platinum - 0.06%
+    # }
+    experiments = {
+        "famg-small-reuters-small-tf-idf-grain": {"corpus_params": {"corpus_name": "reuters21578", "collection_name": "reuters21578", "topic_id": "grain", "topic_set": "grain"}, "vectorizer_params": x}, # grain - 3.01%
+        "famg-small-reuters-small-tf-idf-zinc": {"corpus_params": {"corpus_name": "reuters21578", "collection_name": "reuters21578", "topic_id": "zinc", "topic_set": "zinc"}, "vectorizer_params": x}, # zinc - 0.23%
+        "famg-small-reuters-small-tf-idf-platinum": {"corpus_params": {"corpus_name": "reuters21578", "collection_name": "reuters21578", "topic_id": "platinum", "topic_set": "platinum"}, "vectorizer_params": x} # platinum - 0.06%
+    }
+    for param_group_name, experiment_params in experiments.items():
+        LOGGER.info(f"starting experiment: {param_group_name}")
+        corpus_params = make_file_params(**experiment_params["corpus_params"])
+        fuzzy_artmap_params = make_fuzzy_artmap_params(0.95, 40)
+        fuzzy_artmap_params["model_type"] = "famg"
+        
+        experiment = keepsake.init(params={"run_group": param_group_name, "metric_type": MetricType.init.name, "corpus_params": corpus_params, "vectorizer_type": vectorizer_type.name, "vectorizer_params": experiment_params["vectorizer_params"], "classifier_params": fuzzy_artmap_params, "random_state": json.dumps(random.getstate())})
+        fuzzy_artmap_method(**corpus_params, vectorizer_type=vectorizer_type, vectorizer_params=experiment_params["vectorizer_params"], classifier_params=fuzzy_artmap_params)
+        LOGGER.info(f"experiment complete: {param_group_name}")
+        # fuzzy_artmap_method(data_name, topic_id, topic_set, query_file, qrel_file, doc_id_file, doc_text_file)

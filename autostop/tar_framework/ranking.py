@@ -1,9 +1,12 @@
 # coding=utf-8
 
 from enum import Enum, auto
+import hashlib
+import json
 import os
 from pathlib import Path
 import pickle
+from typing import Any, Dict
 
 import pyltr
 import scipy
@@ -20,6 +23,7 @@ from sklearn.svm import SVC
 from rank_bm25 import BM25Okapi
 from nltk.stem.porter import *
 import nltk
+
 porter_stemmer = PorterStemmer()
 from nltk.tokenize import word_tokenize
 
@@ -29,6 +33,7 @@ from sentence_transformers import SentenceTransformer
 import gensim.downloader as gensim_api
 
 from tar_framework.fuzzy_artmap import FuzzyArtMap
+from tar_framework.fuzzy_artmap_gpu import FuzzyArtMapGpu
 from tar_framework.utils import *
 
 
@@ -120,43 +125,63 @@ class Ranker(object):
             self.model = SVC(probability=True, gamma='scale', random_state=self.random_state)
         elif self.model_type == 'lambdamart':
             self.model = None
-        elif self.model_type == 'fam':
+        elif self.model_type == 'fam' or self.model_type == 'famg':
             self.model = None
         else:
             raise NotImplementedError
 
-    def set_did_2_feature(self, dids, texts, corpus_texts, vectorizer: VectorizerType = VectorizerType.tf_idf, corpus_name=None, vectorizer_params=None):
-        if vectorizer == VectorizerType.tf_idf:
+    def _dict_hash(self, dictionary: Dict[str, Any]) -> str:
+        """MD5 hash of a dictionary."""
+        # https://www.doc.ic.ac.uk/~nuric/coding/how-to-hash-a-dictionary-in-python.html
+        dhash = hashlib.md5()
+        # We need to sort arguments so {'a': 1, 'b': 2} is
+        # the same as {'b': 2, 'a': 1}
+        encoded = json.dumps(dictionary, sort_keys=True).encode()
+        dhash.update(encoded)
+        return dhash.hexdigest()
+
+    def _pickle_or_get_features(self, vectorizer_type: VectorizerType, corpus_name: str, vectorizer_params: dict, vectorizer: callable):
+            if not vectorizer_params:
+                vectorizer_params = {}
+            pickled_corpus_file_name = f"{vectorizer_type.name}_{self._dict_hash(vectorizer_params)}_{corpus_name}.pkl"
+            pickled_corpus = os.path.join(PARENT_DIR, 'data', 'pickels', pickled_corpus_file_name)
+            try:
+                with open(pickled_corpus, 'rb') as pickled_corpus_file:
+                    stored_data = pickle.load(pickled_corpus_file)
+                    features = stored_data['features']
+            except FileNotFoundError as e:
+                pickels_path = os.path.join(PARENT_DIR, 'data', 'pickels')
+                if not Path(pickels_path).exists():
+                    os.mkdir(pickels_path)
+                LOGGER.info(e)
+                features = vectorizer()
+                with open(pickled_corpus, 'wb') as pickled_corpus_file:
+                    pickle.dump({'features': features}, pickled_corpus_file, protocol=pickle.HIGHEST_PROTOCOL)
+            return features
+
+    def set_did_2_feature(self, dids, texts, corpus_texts, vectorizer_type: VectorizerType = VectorizerType.tf_idf, corpus_name=None, vectorizer_params=None):
+        if vectorizer_type == VectorizerType.tf_idf:
             if not vectorizer_params:
                 vectorizer_params = {'stop_words': 'english', 'min_df': int(self.min_df)}
-            tfidf_vectorizer = TfidfVectorizer(**vectorizer_params)
-            tfidf_vectorizer.fit(corpus_texts)
-            features = tfidf_vectorizer.transform(texts)
-        elif vectorizer == VectorizerType.glove:
-            features = self._glove_vectorize_documents(texts)
-        elif vectorizer == VectorizerType.sbert:
-            if corpus_name:
-                pickled_corpus = os.path.join(PARENT_DIR, 'data', 'pickels', corpus_name + '.pkl')
-                try:
-                    with open(pickled_corpus, 'rb') as pickled_corpus_file:
-                        stored_data = pickle.load(pickled_corpus_file)
-                        features = stored_data['features']
-                except FileNotFoundError as e:
-                    pickels_path = os.path.join(PARENT_DIR, 'data', 'pickels')
-                    if not Path(pickels_path).exists():
-                        os.mkdir(pickels_path)
-                    LOGGER.info(e)
-                    features = self.sbert_vectorize_documents(texts)
-                    with open(pickled_corpus, 'wb') as pickled_corpus_file:
-                        pickle.dump({'features': features}, pickled_corpus_file, protocol=pickle.HIGHEST_PROTOCOL)
-            else:
-                features = self.sbert_vectorize_documents(texts)
-        elif vectorizer == VectorizerType.word2vec:
-            features = self._word2vec_vectorize_documents(texts)
+            def tfidf_vectorize():
+                tfidf_vectorizer = TfidfVectorizer(**vectorizer_params)
+                tfidf_vectorizer.fit(corpus_texts)
+                return tfidf_vectorizer.transform(texts)
+            vectorizer = tfidf_vectorize
+        elif vectorizer_type == VectorizerType.glove:
+            vectorizer = lambda : self._glove_vectorize_documents(texts)
+        elif vectorizer_type == VectorizerType.sbert:
+            vectorizer = lambda : self.sbert_vectorize_documents(texts)
+        elif vectorizer_type == VectorizerType.word2vec:
+            vectorizer = lambda : self._word2vec_vectorize_documents(texts)
 
+        if corpus_name:
+            features = self._pickle_or_get_features(vectorizer_type, corpus_name, vectorizer_params, vectorizer)
+        else:
+            features = vectorizer()
 
         for did, feature in zip(dids, features):
-            if vectorizer == VectorizerType.glove or vectorizer == VectorizerType.sbert or VectorizerType.word2vec:
+            if vectorizer_type == VectorizerType.glove or vectorizer_type == VectorizerType.sbert or VectorizerType.word2vec:
                 feature_min = feature.min()
                 assert feature_min >= 0, "Negative feature value encountered"
                 assert feature_min <= 1, "Feature min greater than one"
@@ -168,9 +193,9 @@ class Ranker(object):
             else:
                 self.did2feature[did] = feature
         
-        if vectorizer == VectorizerType.glove or vectorizer == VectorizerType.word2vec:
+        if vectorizer_type == VectorizerType.glove or vectorizer_type == VectorizerType.word2vec:
             unique_missing_tokens = set(self.missing_tokens)
-            LOGGER.info(f"{len(unique_missing_tokens):,} tokens not in {vectorizer} model")
+            LOGGER.info(f"{len(unique_missing_tokens):,} tokens not in {vectorizer_type} model")
             self.missing_tokens.clear()
         
         # TODO: figure out better shape logging
@@ -257,11 +282,18 @@ class Ranker(object):
             corpus_features = self.get_feature_by_did(document_ids)
             document_index_mapping = {document_id: index for index, document_id in enumerate(document_ids)}
             self.model.cache_corpus(corpus_features, document_index_mapping)
+        elif self.model_type == "famg":
+            if not self.model:
+                number_of_features = self.did2feature[document_ids[0]].shape[1]
+                self.model = FuzzyArtMapGpu(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar)
+            corpus_features = self.get_feature_by_did(document_ids)
+            document_index_mapping = {document_id: index for index, document_id in enumerate(document_ids)}
+            self.model.cache_corpus(corpus_features, document_index_mapping)
         else:
             pass
 
     def remove_docs_from_cache(self, document_ids):
-        if self.model_type == "fam":
+        if self.model_type == "fam" or self.model_type == "famg":
             self.model.remove_documents_from_cache(document_ids)
         else:
             pass
@@ -282,6 +314,10 @@ class Ranker(object):
         elif self.model_type == "fam" and not self.model:
             number_of_features = features.shape[1]
             self.model = FuzzyArtMap(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar)
+            model = self.model
+        elif self.model_type == "famg" and not self.model:
+            number_of_features = features.shape[1]
+            self.model = FuzzyArtMapGpu(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar)
             model = self.model
         else:
             model = self.model

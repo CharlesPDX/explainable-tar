@@ -13,8 +13,11 @@ data/20newsgroups/
 # Reuters-21578 TREC formatted data
 data/reuters21578/
 
+data/rcv1/
+data/reuters-rcv1/
 data/tr/
 data/legal/
+data/rcv*
 
 # glove models
 autostop/tar_framework/glove/

@@ -29,7 +29,8 @@ corpora_doctext_mapping = {
     'reuters21578': 'reuters21578.collection.json',
     'athome1': 'athome1.collection.json',
     'athome4': 'athome4.collection.json',
-    'legal': 'collection.json'
+    'legal': 'collection.json',
+    'reuters-rcv1': 'reuters-rcv1.collection.json'
 }
 
 corpora_docid_mapping = {
@@ -37,7 +38,8 @@ corpora_docid_mapping = {
     'reuters21578': 'reuters21578.docids.txt',
     'athome1': 'athome1.docids.txt',
     'athome4': 'athome4.docids.txt',
-    'legal': 'docids.txt'
+    'legal': 'docids.txt',
+    'reuters-rcv1': 'rcv1v2-ids.dat'
 }
 
 def make_file_params(collection_name: str, corpus_name: str, topic_id: str, topic_set: str) -> dict:
