@@ -83,7 +83,7 @@ def autotar_method(data_name, topic_set, topic_id,
     # preparing document features
     ranker = Ranker(model_type=classifier, random_state=random_state, min_df=min_df, C=C)
     # ranker.set_did_2_feature(dids=complete_pseudo_dids, texts=complete_pseudo_texts, corpus_texts=corpus_texts)
-    ranker.set_did_2_feature(dids=complete_pseudo_dids, texts=complete_pseudo_texts, corpus_texts=corpus_texts, vectorizer=vectorizer_type, corpus_name=data_name, vectorizer_params=vectorizer_params)
+    ranker.set_did_2_feature(dids=complete_pseudo_dids, texts=complete_pseudo_texts, corpus_texts=corpus_texts, vectorizer_type=vectorizer_type, corpus_name=data_name, vectorizer_params=vectorizer_params)
     ranker.set_features_by_name('complete_dids', complete_dids)
 
     start_time = datetime.now()

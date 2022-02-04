@@ -279,13 +279,12 @@ class Ranker(object):
             if not self.model:
                 number_of_features = self.did2feature[document_ids[0]].shape[1]
                 self.model = FuzzyArtMap(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar)
-            corpus_features = self.get_feature_by_did(document_ids)
-            document_index_mapping = {document_id: index for index, document_id in enumerate(document_ids)}
-            self.model.cache_corpus(corpus_features, document_index_mapping)
         elif self.model_type == "famg":
             if not self.model:
                 number_of_features = self.did2feature[document_ids[0]].shape[1]
                 self.model = FuzzyArtMapGpu(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar)
+        
+        if self.model_type == "fam" or self.model_type == "famg":            
             corpus_features = self.get_feature_by_did(document_ids)
             document_index_mapping = {document_id: index for index, document_id in enumerate(document_ids)}
             self.model.cache_corpus(corpus_features, document_index_mapping)
