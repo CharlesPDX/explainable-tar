@@ -1,7 +1,9 @@
 # coding=utf-8
 
+
 from enum import Enum, auto
 import hashlib
+import inspect
 import json
 import os
 from pathlib import Path
@@ -34,6 +36,7 @@ import gensim.downloader as gensim_api
 
 from tar_framework.fuzzy_artmap import FuzzyArtMap
 from tar_framework.fuzzy_artmap_gpu import FuzzyArtMapGpu
+from tar_framework.fuzzy_artmap_distributed import FuzzyArtmapDistributed
 from tar_framework.utils import *
 
 
@@ -106,7 +109,8 @@ class Ranker(object):
     """
     Manager the ranking module of the TAR framework.
     """
-    def __init__(self, model_type='lr', min_df=2, C=1.0, random_state=0, rho_a_bar=0.95, number_of_mapping_nodes=36):
+    def __init__(self, model_type='lr', min_df=2, C=1.0, random_state=0, rho_a_bar=0.95, number_of_mapping_nodes=36, scheduler_address=None):
+        self.fam_models = ['fam', 'famg', 'famd']
         self.model_type = model_type
         self.random_state = random_state
         self.min_df = min_df
@@ -118,6 +122,7 @@ class Ranker(object):
         self.glove_model = None
         self.word2vec_model = None
         self.missing_tokens = []
+        self.scheduler_address = scheduler_address
 
         if self.model_type == 'lr':
             self.model = LogisticRegression(solver='lbfgs', random_state=self.random_state, C=self.C, max_iter=10000)
@@ -125,7 +130,7 @@ class Ranker(object):
             self.model = SVC(probability=True, gamma='scale', random_state=self.random_state)
         elif self.model_type == 'lambdamart':
             self.model = None
-        elif self.model_type == 'fam' or self.model_type == 'famg':
+        elif self.model_type in self.fam_models:
             self.model = None
         else:
             raise NotImplementedError
@@ -155,6 +160,8 @@ class Ranker(object):
                     os.mkdir(pickels_path)
                 LOGGER.info(e)
                 features = vectorizer()
+                if inspect.isgenerator(features):
+                    features = list(features)
                 with open(pickled_corpus, 'wb') as pickled_corpus_file:
                     pickle.dump({'features': features}, pickled_corpus_file, protocol=pickle.HIGHEST_PROTOCOL)
             return features
@@ -227,6 +234,7 @@ class Ranker(object):
 
         scalar = MinMaxScaler(feature_range=(0,1), copy=False)
         scalar.fit_transform(vectorized_documents)
+        np.clip(vectorized_documents, 0.0, 1.0, out=vectorized_documents)
         return csr_matrix(vectorized_documents)
 
     def _glove_vectorize_documents(self, texts):
@@ -275,16 +283,20 @@ class Ranker(object):
         return self.name2features[name]
 
     def cache_corpus_in_model(self, document_ids):
+        if self.model_type in self.fam_models:
+            number_of_features = self.did2feature[document_ids[0]].shape[1]
+
         if self.model_type == "fam":
             if not self.model:
-                number_of_features = self.did2feature[document_ids[0]].shape[1]
                 self.model = FuzzyArtMap(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar)
         elif self.model_type == "famg":
-            if not self.model:
-                number_of_features = self.did2feature[document_ids[0]].shape[1]
+            if not self.model:                
                 self.model = FuzzyArtMapGpu(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar)
+        elif self.model_type == "famd":
+            if not self.model:
+                self.model = FuzzyArtmapDistributed(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, scheduler_address=self.scheduler_address)
         
-        if self.model_type == "fam" or self.model_type == "famg":            
+        if self.model_type in self.fam_models:
             corpus_features = self.get_feature_by_did(document_ids)
             document_index_mapping = {document_id: index for index, document_id in enumerate(document_ids)}
             self.model.cache_corpus(corpus_features, document_index_mapping)
@@ -292,12 +304,12 @@ class Ranker(object):
             pass
 
     def remove_docs_from_cache(self, document_ids):
-        if self.model_type == "fam" or self.model_type == "famg":
+        if self.model_type in self.fam_models:
             self.model.remove_documents_from_cache(document_ids)
         else:
             pass
 
-    def train(self, features, labels):
+    def train(self, features, labels):        
         if self.model_type == 'lambdamart':
             # retrain the model at each TAR iteration. Otherwise, the training speed will be slowed drastically.
             model = pyltr.models.LambdaMART(
@@ -317,6 +329,10 @@ class Ranker(object):
         elif self.model_type == "famg" and not self.model:
             number_of_features = features.shape[1]
             self.model = FuzzyArtMapGpu(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar)
+            model = self.model
+        elif self.model_type == "famd" and not self.model:
+            number_of_features = features.shape[1]
+            self.model = FuzzyArtmapDistributed(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, scheduler_address=self.scheduler_address)
             model = self.model
         else:
             model = self.model

@@ -6,6 +6,7 @@ data/pickels/
 
 # ignore keepsake experiment results for now
 .keepsake/
+.keepsake*/
 
 # 20 Newsgroup TREC formatted data
 data/20newsgroups/
@@ -21,6 +22,9 @@ data/rcv*
 
 # glove models
 autostop/tar_framework/glove/
+
+# dask locks
+dask-worker-space/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

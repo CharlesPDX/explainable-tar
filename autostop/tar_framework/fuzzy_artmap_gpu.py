@@ -14,7 +14,7 @@ from .utils import *
 
 
 class FuzzyArtMapGpu:
-    def __init__(self, f1_size: int = 10, f2_size: int = 10, number_of_categories: int = 2, rho_a_bar = 0, use_cuda_if_available = False):
+    def __init__(self, f1_size: int = 10, f2_size: int = 10, number_of_categories: int = 2, rho_a_bar = 0, use_cuda_if_available = True):
         self.alpha = 0.001  # "Choice" parameter > 0. Set small for the conservative limit (Fuzzy AM paper, Sect.3)
         self.beta = 1  # Learning rate. Set to 1 for fast learning
         self.rho_a_bar = rho_a_bar  # Baseline vigilance for ARTa, in range [0,1]
@@ -48,14 +48,15 @@ class FuzzyArtMapGpu:
         self.document_index_mapping = document_index_mapping
         self.excluded_document_ids = set()
         N = self.weight_a.shape[0]
+        A_AND_w =  torch.empty(self.weight_a.shape, device=self.device, dtype=torch.float)
         self.S_cache = torch.zeros((self.corpus.shape[0], N), device=self.device, dtype=torch.float)
-        self.input_sum_cache = torch.tensor(self.corpus.sum(axis=1), dtype=float)
+        self.input_sum_cache = torch.tensor(self.corpus.sum(axis=1), device=self.device, dtype=float)
         
         for i in range(self.corpus.shape[0]):
-            A_for_each_F2_node = self.complement_encode(torch.tensor(self.corpus[i].toarray(), dtype=torch.float)) * torch.ones((N, 1), device=self.device, dtype=torch.float)
+            A_for_each_F2_node = self.complement_encode(torch.tensor(self.corpus[i].toarray(), device=self.device, dtype=torch.float)) * torch.ones((N, 1), device=self.device, dtype=torch.float)
             # A_for_each_F2_node = self.complement_encode(torch.tensor(corpus[i].toarray(), dtype=torch.float)) * torch.ones((N, 1), device=self.device, dtype=torch.float)
             # A_for_each_F2_node = A_for_each_F2_node.to(self.device)
-            A_AND_w = torch.minimum(A_for_each_F2_node, self.weight_a)
+            torch.minimum(A_for_each_F2_node, self.weight_a, out=A_AND_w)
             S = torch.sum(A_AND_w, 1)
             self.S_cache[i] = S
 
@@ -66,11 +67,11 @@ class FuzzyArtMapGpu:
     def recompute_S_cache(self):
         updated_nodes = list(self.updated_nodes)
         N = self.weight_a.shape[0]
-        A_AND_w =  torch.empty((len(updated_nodes),self.weight_a.shape[1]), device=self.device)
+        A_AND_w =  torch.empty((len(updated_nodes),self.weight_a.shape[1]), device=self.device, dtype=torch.float)
         for document_id, index in self.document_index_mapping.items():
             if document_id in self.excluded_document_ids:
                 continue
-            A_for_each_F2_node = self.complement_encode(torch.tensor(self.corpus[index].toarray(), dtype=torch.float)) * torch.ones((N, 1), device=self.device, dtype=torch.float)
+            A_for_each_F2_node = self.complement_encode(torch.tensor(self.corpus[index].toarray(), device=self.device, dtype=torch.float)) * torch.ones((N, 1), device=self.device, dtype=torch.float)
             # A_for_each_F2_node = self.corpus[index] * torch.ones((N, 1), device=self.device, dtype=torch.float)
             # A_for_each_F2_node = A_for_each_F2_node.to(self.device)
             torch.minimum(A_for_each_F2_node[updated_nodes], self.weight_a[updated_nodes], out=A_AND_w)
@@ -156,7 +157,7 @@ class FuzzyArtMapGpu:
             J, x = self._resonance_search(input_vector, already_reset_nodes, rho_a)
 
             # Desired output for input number i
-            z = torch.minimum(class_vector, self.weight_ab[J, np.newaxis])   # Fab activation vector, z
+            z = torch.minimum(class_vector, self.weight_ab[J, None])   # Fab activation vector, z
             # (Called x_ab in Fuzzy ARTMAP paper)
             
             #Test for Fab resonance
@@ -184,11 +185,11 @@ class FuzzyArtMapGpu:
         else:
             beta = self.beta
         #### Let the winning, matching node J learn
-        self.weight_a[J, np.newaxis] = (beta * torch.minimum(input_vector, self.weight_a[J, np.newaxis])) + ((1-beta) * self.weight_a[J, np.newaxis])
+        self.weight_a[J, None] = (beta * torch.minimum(input_vector, self.weight_a[J, None])) + ((1-beta) * self.weight_a[J, None])
         # NB: x = min(A,w_J) = I and w
         
         #### Learning on F1a <--> F2a weights
-        self.weight_ab[J, np.newaxis] = (self.beta * z) + ((1-self.beta) * self.weight_ab[J, np.newaxis])
+        self.weight_ab[J, None] = (self.beta * z) + ((1-self.beta) * self.weight_ab[J, None])
         # NB: z=min(b,w_ab(J))=b and w
         self.committed_nodes.add(J)
 
