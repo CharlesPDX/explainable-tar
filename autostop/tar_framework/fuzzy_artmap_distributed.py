@@ -187,6 +187,7 @@ class FuzzyArtMapWorker:
         if number_of_new_nodes > 0:
             self.weight_a = np.concatenate((self.weight_a, np.ones((number_of_new_nodes,  self.weight_a.shape[1]), dtype=np.float32)), axis=0)
             self.weight_ab = np.concatenate((self.weight_ab, np.ones((number_of_new_nodes, self.weight_ab.shape[1]), dtype=np.float32)), axis=0)
+            self.S_cache = np.concatenate((self.S_cache, np.ones((self.corpus.shape[0], number_of_new_nodes), dtype=np.float32)), axis=1)
         self.weight_a[update_indexes] = a_updates
         self.weight_ab[update_indexes] = ab_updates
         self.recompute_S_cache(update_indexes)
@@ -194,7 +195,7 @@ class FuzzyArtMapWorker:
     def cache_corpus(self, corpus: csr_matrix, document_index_mapping: dict):
         self.corpus = self.complement_encode(corpus)
         self.document_index_mapping = document_index_mapping
-        print(f"zz setting mapping to: {len(self.document_index_mapping.items())}")
+        print(f"aa setting mapping to: {len(self.document_index_mapping.items())}")
         self.excluded_document_ids = set()
         N = self.weight_a.shape[0]
         self.S_cache = np.zeros((self.corpus.shape[0], N), dtype=np.float32)
