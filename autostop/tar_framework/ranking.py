@@ -1,6 +1,4 @@
 # coding=utf-8
-
-
 from enum import Enum, auto
 import hashlib
 import inspect
@@ -34,11 +32,11 @@ from sentence_transformers import SentenceTransformer
 
 import gensim.downloader as gensim_api
 
-from tar_framework.fuzzy_artmap import FuzzyArtMap
-from tar_framework.fuzzy_artmap_gpu import FuzzyArtMapGpu
-from tar_framework.fuzzy_artmap_distributed import FuzzyArtmapDistributed
-from tar_framework.fuzzy_artmap_distributed_gpu import FuzzyArtmapGpuDistributed
-from tar_framework.utils import *
+from fuzzy_artmap import FuzzyArtMap
+from fuzzy_artmap_gpu import FuzzyArtMapGpu
+from fuzzy_artmap_distributed import FuzzyArtmapDistributed
+from fuzzy_artmap_distributed_gpu import FuzzyArtmapGpuDistributed
+from utils import PARENT_DIR, LOGGER, REL
 
 
 def preprocess_text(text):
@@ -125,6 +123,7 @@ class Ranker(object):
         self.missing_tokens = []
         self.scheduler_address = scheduler_address
         self.max_nodes_mode = max_nodes_mode
+        self.set_did_2_feature_params = None
 
         if self.model_type == 'lr':
             self.model = LogisticRegression(solver='lbfgs', random_state=self.random_state, C=self.C, max_iter=10000)
@@ -170,8 +169,10 @@ class Ranker(object):
                     pickle.dump({'features': features}, pickled_corpus_file, protocol=pickle.HIGHEST_PROTOCOL)
             return features
 
-    def set_did_2_feature(self, dids, texts, corpus_texts, vectorizer_type: VectorizerType = VectorizerType.tf_idf, corpus_name=None, vectorizer_params=None):
-        if vectorizer_type == VectorizerType.tf_idf:
+    def set_did_2_feature(self, dids, texts, corpus_texts, vectorizer_type: VectorizerType = VectorizerType.tf_idf, corpus_name=None, vectorizer_params=None):        
+        self.set_did_2_feature_params = (dids, vectorizer_type, corpus_name, vectorizer_params)
+
+        if vectorizer_type.name == VectorizerType.tf_idf.name:
             if not vectorizer_params:
                 vectorizer_params = {'stop_words': 'english', 'min_df': int(self.min_df)}
             def tfidf_vectorize():
@@ -179,12 +180,12 @@ class Ranker(object):
                 tfidf_vectorizer.fit(corpus_texts)
                 return tfidf_vectorizer.transform(texts)
             vectorizer = tfidf_vectorize
-        elif vectorizer_type == VectorizerType.glove:
+        elif vectorizer_type.name == VectorizerType.glove.name:
             vectorizer = lambda : self._glove_vectorize_documents(texts)
-        elif vectorizer_type == VectorizerType.sbert:
+        elif vectorizer_type.name == VectorizerType.sbert.name:
             vectorizer = lambda : self.sbert_vectorize_documents(texts)
-        elif vectorizer_type == VectorizerType.word2vec:
-            vectorizer = lambda : self._word2vec_vectorize_documents(texts)
+        elif vectorizer_type.name == VectorizerType.word2vec.name:
+            vectorizer = lambda : self._word2vec_vectorize_documents(texts)        
 
         if corpus_name:
             features = Ranker._pickle_or_get_features(vectorizer_type, corpus_name, vectorizer_params, vectorizer)
@@ -210,7 +211,7 @@ class Ranker(object):
             self.missing_tokens.clear()
         
         # TODO: figure out better shape logging
-        logging.info(f'Ranker.set_feature_dict is done. - {len(self.did2feature):,} documents, {self.did2feature[dids[0]].shape} dimensions')
+        LOGGER.info(f'Ranker.set_feature_dict is done. - {len(self.did2feature):,} documents, {self.did2feature[dids[0]].shape} dimensions')
         return
 
     def sbert_vectorize_documents(self, texts):
@@ -308,7 +309,7 @@ class Ranker(object):
             corpus_features = self.get_feature_by_did(document_ids)
             document_index_mapping = {document_id: index for index, document_id in enumerate(document_ids)}
             if self.model_type == "famdg":
-                await self.model.cache_corpus(corpus_features, document_index_mapping)
+                await self.model.cache_corpus(self.set_did_2_feature_params, document_index_mapping)
             else:
                 self.model.cache_corpus(corpus_features, document_index_mapping)
         else:

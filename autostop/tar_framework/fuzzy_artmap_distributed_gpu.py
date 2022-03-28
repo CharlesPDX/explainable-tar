@@ -3,6 +3,13 @@
 # "Fuzzy ARTMAP: A Neural Network Architecture for Incremental Supervised Learning of Analog Multidimensional Maps"
 # IEEE Transactions on Neural Networks, Vol. 3, No. 5, pp. 698-713.
 
+import sys
+import os
+sys.path.insert(0, os.path.join(os.getcwd(), 'autostop'))
+sys.path.insert(0, os.path.join(os.getcwd(), 'autostop/trec_eval/measures'))
+sys.path.insert(0, os.path.join(os.getcwd(), 'autostop/trec_eval/seeker'))
+sys.path.insert(0, os.path.join(os.getcwd(), 'autostop/tar_framework'))
+
 import gc
 import asyncio
 import socket
@@ -47,12 +54,11 @@ class FuzzyArtmapGpuDistributed:
         await self.client.init_workers(params)
         logger.info("Workers initialized")
     
-    async def cache_corpus(self, corpus: csr_matrix, document_index_mapping: dict):
+    async def cache_corpus(self, ranker_params, document_index_mapping: dict):
         logger.info("Starting distributed corpus caching.")
         number_of_workers = len(self.client.workers)
         document_index_chunks = np.array_split(list(document_index_mapping.keys()), number_of_workers)
-        x = corpus.toarray()
-        await self.client.cache_corpus(x, document_index_chunks)
+        await self.client.cache_corpus(ranker_params, document_index_chunks)
         logger.info("Completed distributed corpus caching.")
 
     async def remove_documents_from_cache(self, document_ids):
@@ -346,8 +352,24 @@ class FuzzyArtMapGpuWorker:
             self.S_cache[i] = torch.sum(A_AND_w, 1)
         print("worker corpus caching complete")
 
-    def cache_doc_mapping(self, document_index_mapping: dict):
+    def cache_doc_mapping(self, ranker_params, document_index_mapping: dict):
+        from ranking import Ranker, VectorizerType
+        print(f"bb setting mapping to: {len(document_index_mapping)}")
         self.document_index_mapping = document_index_mapping
+        ranker = Ranker("famdg")
+        ranker.set_did_2_feature(ranker_params[0], None, None, ranker_params[1], ranker_params[2], ranker_params[3])
+        corpus = ranker.get_feature_by_did(document_index_mapping.keys())
+        self.corpus = FuzzyArtMapGpuWorker.complement_encode(torch.tensor(corpus.toarray(), device="cpu", dtype=torch.float))
+        self.excluded_document_ids = set()
+        N = self.weight_a.shape[0]
+        A_AND_w =  torch.empty(self.weight_a.shape, device=self.device, dtype=torch.float)
+        self.S_cache = torch.zeros((self.corpus.shape[0], N), device=self.device, dtype=torch.float)
+        ones = torch.ones((N, 1), device=self.device, dtype=torch.float)
+        for i in range(self.corpus.shape[0]):
+            A_for_each_F2_node = self.corpus[i].to(self.device) * ones
+            torch.minimum(A_for_each_F2_node, self.weight_a, out=A_AND_w)
+            self.S_cache[i] = torch.sum(A_AND_w, 1)
+        print("worker corpus caching complete")
 
     def remove_documents_from_cache(self, document_ids):
         for document_id in document_ids:
@@ -402,6 +424,7 @@ class FuzzyArtmapWorkerServer(TCPServer):
         super().__init__(ssl_options, max_buffer_size, read_chunk_size)
         self.model = None
         self.end = "\n".encode("utf-8")
+        self.end_mark = "|||".encode("utf-8")
         gc.disable()
 
     async def handle_stream(self, stream, address):
@@ -409,13 +432,15 @@ class FuzzyArtmapWorkerServer(TCPServer):
         total_data = bytearray()
         while True:
             try:
-                # data = await stream.read_until(b"\n")
+                data = await stream.read_until(self.end_mark)
+                print(f"{len(data)}")
+                await self.handle_data(data[:-3], stream)
                 # await stream.write(data)
-                data = await stream.read_bytes(buffer_size, True)
-                total_data.extend(data)
-                if not data or len(data) < buffer_size:
-                    await self.handle_data(total_data, stream)
-                    total_data.clear()
+                # data = await stream.read_bytes(buffer_size, True)                
+                # total_data.extend(data)
+                # if not data or len(data) < buffer_size:
+                #     await self.handle_data(total_data, stream)
+                #     total_data.clear()
             except StreamClosedError:
                 print("connection closed")
                 break
@@ -437,9 +462,11 @@ class FuzzyArtmapWorkerServer(TCPServer):
             logger.info("init completed")
 
         elif data[0] == 100: # "d" - cache doc mapping
-            doc_index = pickle.loads(data[1:])
-            self.model.cache_doc_mapping(doc_index)   
-            await stream.write(self.end)         
+            logger.info(f"{len(data)}")
+            ranker_params, doc_index = pickle.loads(data[1:])
+            self.model.cache_doc_mapping(ranker_params, doc_index)   
+            # await stream.write(self.end)
+            await stream.write(b'corpus')
             logger.info("cache doc mapping completed")
 
         elif data[0] == 112: # "p" - predict
@@ -461,7 +488,8 @@ class FuzzyArtmapWorkerServer(TCPServer):
         
         elif data[0] == 99: # "c" - cache corpus
             print(f"{len(data)}")
-            numpy_data = io.BytesIO(data[1:])
+            numpy_data = io.BytesIO(data[1:-3])
+            # print(f"{numpy_data.getbuffer().count()}")
             numpy_data.seek(0)
             with np.load(numpy_data, allow_pickle=True) as d:
                 corpus_array = d["cache"]
@@ -493,6 +521,7 @@ class FuzzyArtmapWorkerClient():
         self.fit_header = "f".encode("utf-8")
         self.payload_seperator = "|".encode("utf-8")
         self.end_mark = b"\n"
+        self.sending_end_mark = "|||".encode("utf-8")
     
     async def get_workers(self):
         client = TCPClient()
@@ -512,42 +541,39 @@ class FuzzyArtmapWorkerClient():
         futures = []
         pickled_params = pickle.dumps(params)
         for worker in self.workers:
-           futures.append(worker.write(self.init_header + pickled_params))
+           futures.append(worker.write(self.init_header + pickled_params + self.sending_end_mark))
         
         await asyncio.gather(*futures)
         await self.get_responses()
         logger.info("init workers completed")
 
-    async def cache_corpus(self, corpus, document_index_chunks):
+    async def cache_corpus(self, ranker_params, document_index_chunks):
         logger.info("cache corpus entered")
         caching_futures = []
-        number_of_workers = len(self.workers)
-        corpus_payloads = []
-        for _ in range(number_of_workers):
-            corpus_payloads.append(io.BytesIO())
-        
-        mappings = []
+        # number_of_workers = len(self.workers)                
+        # mappings = []
 
-        for index, corpus_chunk in enumerate(np.array_split(corpus, number_of_workers)):
+        for index, worker in enumerate(self.workers):
             chunk_document_id_index = {document_id: index for index, document_id in enumerate(document_index_chunks[index])}
-            mappings.append(self.cache_doc_mapping_header + pickle.dumps(chunk_document_id_index))
-            np.savez_compressed(corpus_payloads[index], cache=corpus_chunk)
-            corpus_payloads[index].seek(0)
-        
-        for index, mapping in enumerate(mappings):
-            caching_futures.append(self.workers[index].write(mapping))
+            caching_futures.append(worker.write(self.cache_doc_mapping_header + pickle.dumps((ranker_params, chunk_document_id_index)) + self.sending_end_mark))
 
-        await asyncio.gather(*caching_futures)
-        logger.info("cache doc ids complete")
-
-        caching_futures = []
-        for index, corpus_payload in enumerate(corpus_payloads):
-            caching_futures.append(self.workers[index].write(self.cache_corpus_header + corpus_payload.getbuffer()))
-        
         for index in range(len(self.workers)):
             caching_futures.append(self.workers[index].read_until(b'corpus'))
         
         await asyncio.gather(*caching_futures)
+
+        # await self.get_responses()
+        # await asyncio.gather(*caching_futures)
+        # logger.info("cache doc ids complete")
+
+        # caching_futures = []
+        # for index, corpus_payload in enumerate(corpus_payloads):
+        #     caching_futures.append(self.workers[index].write(self.cache_corpus_header + corpus_payload.getbuffer() + self.sending_end_mark))
+        
+        # for index in range(len(self.workers)):
+        #     caching_futures.append(self.workers[index].read_until(b'corpus'))
+        
+        # await asyncio.gather(*caching_futures)
         # await self.get_responses()
         logger.info("cache corpus completed")
     
@@ -556,7 +582,7 @@ class FuzzyArtmapWorkerClient():
         futures = []
         pickled_doc_ids = pickle.dumps(document_ids)
         for worker in self.workers:
-           futures.append(worker.write(self.remove_documents_header + pickled_doc_ids))
+           futures.append(worker.write(self.remove_documents_header + pickled_doc_ids + self.sending_end_mark))
 
         await asyncio.gather(*futures)
         await self.get_responses()
@@ -567,7 +593,7 @@ class FuzzyArtmapWorkerClient():
         futures = []
         pickled_params= pickle.dumps(params)
         for worker in self.workers:
-           futures.append(worker.write(self.fit_header + pickled_params))
+           futures.append(worker.write(self.fit_header + pickled_params + self.sending_end_mark))
 
         await asyncio.gather(*futures)
         await self.get_responses()
@@ -580,7 +606,7 @@ class FuzzyArtmapWorkerClient():
         torch.save(params, buffer)
         # buffer.seek(0)
         for worker in self.workers:
-           futures.append(worker.write(self.update_weights_header + buffer.getbuffer()))
+           futures.append(worker.write(self.update_weights_header + buffer.getbuffer() + self.sending_end_mark))
         
         await asyncio.gather(*futures)
         await self.get_responses()
@@ -600,7 +626,7 @@ class FuzzyArtmapWorkerClient():
         return results
 
     async def single_predict(self, pickled_doc_ids, worker):
-        worker.write(self.predict_header + pickled_doc_ids)
+        worker.write(self.predict_header + pickled_doc_ids + self.sending_end_mark)
         buffer_size = 4096
         total_data = bytearray()
         while True:            
