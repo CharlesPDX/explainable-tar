@@ -37,6 +37,7 @@ import gensim.downloader as gensim_api
 from tar_framework.fuzzy_artmap import FuzzyArtMap
 from tar_framework.fuzzy_artmap_gpu import FuzzyArtMapGpu
 from tar_framework.fuzzy_artmap_distributed import FuzzyArtmapDistributed
+from tar_framework.fuzzy_artmap_distributed_gpu import FuzzyArtmapGpuDistributed
 from tar_framework.utils import *
 
 
@@ -109,8 +110,8 @@ class Ranker(object):
     """
     Manager the ranking module of the TAR framework.
     """
-    def __init__(self, model_type='lr', min_df=2, C=1.0, random_state=0, rho_a_bar=0.95, number_of_mapping_nodes=36, scheduler_address=None):
-        self.fam_models = ['fam', 'famg', 'famd']
+    def __init__(self, model_type='lr', min_df=2, C=1.0, random_state=0, rho_a_bar=0.95, number_of_mapping_nodes=36, scheduler_address=None, max_nodes_mode=False):
+        self.fam_models = ['fam', 'famg', 'famd', 'famdg']
         self.model_type = model_type
         self.random_state = random_state
         self.min_df = min_df
@@ -123,6 +124,7 @@ class Ranker(object):
         self.word2vec_model = None
         self.missing_tokens = []
         self.scheduler_address = scheduler_address
+        self.max_nodes_mode = max_nodes_mode
 
         if self.model_type == 'lr':
             self.model = LogisticRegression(solver='lbfgs', random_state=self.random_state, C=self.C, max_iter=10000)
@@ -135,7 +137,8 @@ class Ranker(object):
         else:
             raise NotImplementedError
 
-    def _dict_hash(self, dictionary: Dict[str, Any]) -> str:
+    @staticmethod
+    def _dict_hash(dictionary: Dict[str, Any]) -> str:
         """MD5 hash of a dictionary."""
         # https://www.doc.ic.ac.uk/~nuric/coding/how-to-hash-a-dictionary-in-python.html
         dhash = hashlib.md5()
@@ -145,10 +148,11 @@ class Ranker(object):
         dhash.update(encoded)
         return dhash.hexdigest()
 
-    def _pickle_or_get_features(self, vectorizer_type: VectorizerType, corpus_name: str, vectorizer_params: dict, vectorizer: callable):
+    @staticmethod
+    def _pickle_or_get_features(vectorizer_type: VectorizerType, corpus_name: str, vectorizer_params: dict, vectorizer: callable):
             if not vectorizer_params:
                 vectorizer_params = {}
-            pickled_corpus_file_name = f"{vectorizer_type.name}_{self._dict_hash(vectorizer_params)}_{corpus_name}.pkl"
+            pickled_corpus_file_name = f"{vectorizer_type.name}_{Ranker._dict_hash(vectorizer_params)}_{corpus_name}.pkl"
             pickled_corpus = os.path.join(PARENT_DIR, 'data', 'pickels', pickled_corpus_file_name)
             try:
                 with open(pickled_corpus, 'rb') as pickled_corpus_file:
@@ -183,7 +187,7 @@ class Ranker(object):
             vectorizer = lambda : self._word2vec_vectorize_documents(texts)
 
         if corpus_name:
-            features = self._pickle_or_get_features(vectorizer_type, corpus_name, vectorizer_params, vectorizer)
+            features = Ranker._pickle_or_get_features(vectorizer_type, corpus_name, vectorizer_params, vectorizer)
         else:
             features = vectorizer()
 
@@ -282,7 +286,7 @@ class Ranker(object):
     def get_features_by_name(self, name):
         return self.name2features[name]
 
-    def cache_corpus_in_model(self, document_ids):
+    async def cache_corpus_in_model(self, document_ids):
         if self.model_type in self.fam_models:
             number_of_features = self.did2feature[document_ids[0]].shape[1]
 
@@ -291,25 +295,37 @@ class Ranker(object):
                 self.model = FuzzyArtMap(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar)
         elif self.model_type == "famg":
             if not self.model:                
-                self.model = FuzzyArtMapGpu(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar)
+                self.model = FuzzyArtMapGpu(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, max_nodes_mode=self.max_nodes_mode)
         elif self.model_type == "famd":
             if not self.model:
                 self.model = FuzzyArtmapDistributed(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, scheduler_address=self.scheduler_address)
-        
+        elif self.model_type == "famdg":
+            if not self.model:
+                self.model = FuzzyArtmapGpuDistributed(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, scheduler_address=self.scheduler_address, max_nodes_mode=self.max_nodes_mode)
+                await self.model.initialize_workers()
+
         if self.model_type in self.fam_models:
             corpus_features = self.get_feature_by_did(document_ids)
             document_index_mapping = {document_id: index for index, document_id in enumerate(document_ids)}
-            self.model.cache_corpus(corpus_features, document_index_mapping)
+            if self.model_type == "famdg":
+                await self.model.cache_corpus(corpus_features, document_index_mapping)
+            else:
+                self.model.cache_corpus(corpus_features, document_index_mapping)
         else:
             pass
 
-    def remove_docs_from_cache(self, document_ids):
-        if self.model_type in self.fam_models:
+    async def remove_docs_from_cache(self, document_ids):
+        if self.model_type == "famdg":
+            await self.model.remove_documents_from_cache(document_ids)
+        elif self.model_type in self.fam_models:
             self.model.remove_documents_from_cache(document_ids)
         else:
             pass
 
-    def train(self, features, labels):        
+    async def train(self, features, labels):
+        if self.model_type in self.fam_models:
+            number_of_features = features.shape[1]
+
         if self.model_type == 'lambdamart':
             # retrain the model at each TAR iteration. Otherwise, the training speed will be slowed drastically.
             model = pyltr.models.LambdaMART(
@@ -323,22 +339,27 @@ class Ranker(object):
                 verbose=0,
                 random_state=self.random_state)
         elif self.model_type == "fam" and not self.model:
-            number_of_features = features.shape[1]
             self.model = FuzzyArtMap(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar)
             model = self.model
         elif self.model_type == "famg" and not self.model:
-            number_of_features = features.shape[1]
-            self.model = FuzzyArtMapGpu(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar)
+            self.model = FuzzyArtMapGpu(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, max_nodes_mode=self.max_nodes_mode)
             model = self.model
         elif self.model_type == "famd" and not self.model:
-            number_of_features = features.shape[1]
             self.model = FuzzyArtmapDistributed(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, scheduler_address=self.scheduler_address)
             model = self.model
+        elif self.model_type == "famdg" and not self.model:
+            self.model = FuzzyArtmapGpuDistributed(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, scheduler_address=self.scheduler_address, max_nodes_mode=self.max_nodes_mode)
+            model = self.model
+            await self.model.initialize_workers()
+            await model.fit(features, labels)
+            return
         else:
             model = self.model
-        model.fit(features, labels)
+        if self.model_type != "famdg":
+            model.fit(features, labels)
+        else:
+            await model.fit(features, labels)
         # logging.info('Ranker.train is done.')
-        return
 
     def predict(self, features):
         probs = self.model.predict_proba(features)
@@ -346,8 +367,11 @@ class Ranker(object):
         scores = probs[:, rel_class_inx]
         return scores
 
-    def predict_with_doc_id(self, doc_ids):
-        probs = self.model.predict_proba(doc_ids)
+    async def predict_with_doc_id(self, doc_ids):
+        if self.model_type != "famdg":
+            probs = self.model.predict_proba(doc_ids)
+        else:
+            probs = await self.model.predict_proba(doc_ids)
         if probs.shape[0] != 0:
             scores = probs[:, np.r_[0:1, 2:3]]
         else:

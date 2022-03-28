@@ -25,7 +25,7 @@ class FuzzyArtmapDistributed:
         self.f1_size = f1_size
         self.number_of_categories = number_of_categories
         self.classes_ = np.array([1])
-        self.client = Client(scheduler_address)
+        self.client = Client(scheduler_address, direct_to_workers=True)
         # self.client.upload_file(os.path.abspath(__file__))
         self.client.upload_file(__file__)
         self.worker_addresses = list(self.client.ncores().keys())
