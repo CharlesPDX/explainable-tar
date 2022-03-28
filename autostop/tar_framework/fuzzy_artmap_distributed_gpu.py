@@ -3,6 +3,7 @@
 # "Fuzzy ARTMAP: A Neural Network Architecture for Incremental Supervised Learning of Analog Multidimensional Maps"
 # IEEE Transactions on Neural Networks, Vol. 3, No. 5, pp. 698-713.
 
+import gc
 import asyncio
 import socket
 import pickle
@@ -397,10 +398,11 @@ class FuzzyArtMapGpuWorker:
 
 
 class FuzzyArtmapWorkerServer(TCPServer):
-    def __init__(self, ssl_options = None, max_buffer_size = None, read_chunk_size = None) -> None:
-        self.model = FuzzyArtMapGpuWorker()
-        self.end = "\n".encode("utf-8")
+    def __init__(self, ssl_options = None, max_buffer_size = None, read_chunk_size = None) -> None:        
         super().__init__(ssl_options, max_buffer_size, read_chunk_size)
+        self.model = None
+        self.end = "\n".encode("utf-8")
+        gc.disable()
 
     async def handle_stream(self, stream, address):
         buffer_size = 4096
@@ -427,6 +429,8 @@ class FuzzyArtmapWorkerServer(TCPServer):
             logger.info("remove docs completed")
         
         elif data[0] == 105: # "i" - init
+            self.model = FuzzyArtMapGpuWorker()
+            gc.collect()
             init_params = pickle.loads(data[1:])
             self.model.init(*init_params)
             await stream.write(self.end)
@@ -472,7 +476,6 @@ class FuzzyArtmapWorkerServer(TCPServer):
             await stream.write(self.end)
             logger.info("training completed")
         
-        # TODO: add GC command and worker reset
         else:
             print(data)
 
@@ -523,12 +526,17 @@ class FuzzyArtmapWorkerClient():
         for _ in range(number_of_workers):
             corpus_payloads.append(io.BytesIO())
         
+        mappings = []
+
         for index, corpus_chunk in enumerate(np.array_split(corpus, number_of_workers)):
             chunk_document_id_index = {document_id: index for index, document_id in enumerate(document_index_chunks[index])}
-            caching_futures.append(self.workers[index].write(self.cache_doc_mapping_header + pickle.dumps(chunk_document_id_index)))
+            mappings.append(self.cache_doc_mapping_header + pickle.dumps(chunk_document_id_index))
             np.savez_compressed(corpus_payloads[index], cache=corpus_chunk)
             corpus_payloads[index].seek(0)
         
+        for index, mapping in enumerate(mappings):
+            caching_futures.append(self.workers[index].write(mapping))
+
         await asyncio.gather(*caching_futures)
         logger.info("cache doc ids complete")
 
