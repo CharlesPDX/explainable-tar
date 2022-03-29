@@ -3,13 +3,6 @@
 # "Fuzzy ARTMAP: A Neural Network Architecture for Incremental Supervised Learning of Analog Multidimensional Maps"
 # IEEE Transactions on Neural Networks, Vol. 3, No. 5, pp. 698-713.
 
-import sys
-import os
-sys.path.insert(0, os.path.join(os.getcwd(), 'autostop'))
-sys.path.insert(0, os.path.join(os.getcwd(), 'autostop/trec_eval/measures'))
-sys.path.insert(0, os.path.join(os.getcwd(), 'autostop/trec_eval/seeker'))
-sys.path.insert(0, os.path.join(os.getcwd(), 'autostop/tar_framework'))
-
 import gc
 import asyncio
 import socket
@@ -472,7 +465,7 @@ class FuzzyArtmapWorkerServer(TCPServer):
         elif data[0] == 112: # "p" - predict
             doc_ids = pickle.loads(data[1:])
             results = self.model.predict_proba(doc_ids)
-            await stream.write(pickle.dumps(results))
+            await stream.write(pickle.dumps(results)+self.end_mark)
             logger.info("predict completed")            
         
         elif data[0] == 117: # "u" - update weights
@@ -550,9 +543,6 @@ class FuzzyArtmapWorkerClient():
     async def cache_corpus(self, ranker_params, document_index_chunks):
         logger.info("cache corpus entered")
         caching_futures = []
-        # number_of_workers = len(self.workers)                
-        # mappings = []
-
         for index, worker in enumerate(self.workers):
             chunk_document_id_index = {document_id: index for index, document_id in enumerate(document_index_chunks[index])}
             caching_futures.append(worker.write(self.cache_doc_mapping_header + pickle.dumps((ranker_params, chunk_document_id_index)) + self.sending_end_mark))
@@ -561,20 +551,6 @@ class FuzzyArtmapWorkerClient():
             caching_futures.append(self.workers[index].read_until(b'corpus'))
         
         await asyncio.gather(*caching_futures)
-
-        # await self.get_responses()
-        # await asyncio.gather(*caching_futures)
-        # logger.info("cache doc ids complete")
-
-        # caching_futures = []
-        # for index, corpus_payload in enumerate(corpus_payloads):
-        #     caching_futures.append(self.workers[index].write(self.cache_corpus_header + corpus_payload.getbuffer() + self.sending_end_mark))
-        
-        # for index in range(len(self.workers)):
-        #     caching_futures.append(self.workers[index].read_until(b'corpus'))
-        
-        # await asyncio.gather(*caching_futures)
-        # await self.get_responses()
         logger.info("cache corpus completed")
     
     async def remove_documents_from_cache(self, document_ids):
@@ -627,15 +603,8 @@ class FuzzyArtmapWorkerClient():
 
     async def single_predict(self, pickled_doc_ids, worker):
         worker.write(self.predict_header + pickled_doc_ids + self.sending_end_mark)
-        buffer_size = 4096
-        total_data = bytearray()
-        while True:            
-            # data = await stream.read_until(b"\n")
-            # await stream.write(data)
-            data = await worker.read_bytes(buffer_size, True)
-            total_data.extend(data)
-            if not data or len(data) < buffer_size:
-                return pickle.loads(total_data)
+        data = await worker.read_until(self.sending_end_mark)
+        return pickle.loads(data[:-3])
 
     async def get_responses(self):
         response_futures = []
