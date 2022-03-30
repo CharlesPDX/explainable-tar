@@ -14,7 +14,7 @@ from utils import *
 
 
 class FuzzyArtMapGpu:
-    def __init__(self, f1_size: int = 10, f2_size: int = 10, number_of_categories: int = 2, rho_a_bar = 0, max_nodes_mode = False, use_cuda_if_available = False):
+    def __init__(self, f1_size: int = 10, f2_size: int = 10, number_of_categories: int = 2, rho_a_bar = 0, max_nodes = None, use_cuda_if_available = False):
         self.alpha = 0.001  # "Choice" parameter > 0. Set small for the conservative limit (Fuzzy AM paper, Sect.3)
         self.beta = 1  # Learning rate. Set to 1 for fast learning
         self.beta_ab = 1 #ab learning rate
@@ -23,7 +23,7 @@ class FuzzyArtMapGpu:
         self.rho_ab = 0.95          # Map field vigilance, in [0,1]
         self.epsilon = 0.001        # Fab mismatch raises ARTa vigilance to this much above what is needed to reset ARTa
         
-        self.max_nodes_mode = max_nodes_mode
+        self.max_nodes = max_nodes
 
         if use_cuda_if_available and torch.cuda.is_available():
             self.device = torch.device("cuda")
@@ -57,8 +57,6 @@ class FuzzyArtMapGpu:
         ones = torch.ones((N, 1), device=self.device, dtype=torch.float)
         for i in range(self.corpus.shape[0]):
             A_for_each_F2_node = self.corpus[i].to(self.device) * ones
-            # A_for_each_F2_node = self.complement_encode(torch.tensor(corpus[i].toarray(), dtype=torch.float)) * torch.ones((N, 1), device=self.device, dtype=torch.float)
-            # A_for_each_F2_node = A_for_each_F2_node.to(self.device)
             torch.minimum(A_for_each_F2_node, self.weight_a, out=A_AND_w)
             self.S_cache[i] = torch.sum(A_AND_w, 1)
 
@@ -75,13 +73,11 @@ class FuzzyArtMapGpu:
             if document_id in self.excluded_document_ids:
                 continue
             A_for_each_F2_node = (self.corpus[index].to(self.device)) * ones
-            # A_for_each_F2_node = self.corpus[index] * torch.ones((N, 1), device=self.device, dtype=torch.float)
-            # A_for_each_F2_node = A_for_each_F2_node.to(self.device)
             torch.minimum(A_for_each_F2_node[updated_nodes], self.weight_a[updated_nodes], out=A_AND_w)
             self.S_cache[index, updated_nodes] = torch.sum(A_AND_w, 1)
 
     # @profile
-    def _resonance_search(self, input_vector: torch.tensor, already_reset_nodes: List[int], rho_a: float, allow_category_growth = True):
+    def _resonance_search(self, input_vector: torch.tensor, already_reset_nodes: List[int], rho_a: float):
         resonant_a = False
         N, S, T = self.calculate_activation(input_vector)
         while not resonant_a:            
@@ -105,13 +101,13 @@ class FuzzyArtMapGpu:
 
             #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             # Creating a new node if we've reset all of them
-            if len(already_reset_nodes) >= N:                
-                if allow_category_growth:
+            if len(already_reset_nodes) >= N:
+                if self.max_nodes is None or self.max_nodes >= (N + self.node_increase_step):
                     self.weight_a = torch.vstack((self.weight_a, torch.ones((self.node_increase_step,  self.weight_a.shape[1]), device=self.device, dtype=torch.float)))
                     self.weight_ab = torch.vstack((self.weight_ab, torch.ones((self.node_increase_step, self.weight_ab.shape[1]), device=self.device, dtype=torch.float)))
                     self.S_cache = torch.hstack((self.S_cache, torch.ones((self.corpus.shape[0], self.node_increase_step), device=self.device, dtype=torch.float)))
                     # Give the new F2a node a w_ab entry, this new node should win
-                else:                   
+                else:
                     self.rho_ab = 0
                     self.beta_ab = 0.75
                     self.rho_a_bar = 0
@@ -164,7 +160,7 @@ class FuzzyArtMapGpu:
         class_vector = class_vector.to(self.device)
         input_vector = input_vector.to(self.device)
         while not resonant_ab:            
-            J, x = self._resonance_search(input_vector, already_reset_nodes, rho_a, not self.max_nodes_mode)
+            J, x = self._resonance_search(input_vector, already_reset_nodes, rho_a)
 
             # Desired output for input number i
             z = torch.minimum(class_vector, self.weight_ab[J, None])   # Fab activation vector, z

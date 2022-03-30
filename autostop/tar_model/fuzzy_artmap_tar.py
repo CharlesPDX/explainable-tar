@@ -94,7 +94,7 @@ async def fuzzy_artmap_method(data_name, topic_set, topic_id,
     initial_training_features = ranker.get_feature_by_did(initial_training_doc_ids)
     
     LOGGER.info(f"starting initial training")
-    await ranker.train(initial_training_features, initial_training_labels)
+    await ranker.train(initial_training_features, initial_training_labels, initial_training_doc_ids)
     LOGGER.info(f"initial training complete - {len(initial_training_doc_ids):,} documents")
 
     last_r = 0
@@ -107,8 +107,7 @@ async def fuzzy_artmap_method(data_name, topic_set, topic_id,
         while not stopping:
             iteration_start_time = datetime.now()
             t += 1
-            gc_stats = gc.get_stats()
-            LOGGER.info(f'TAR: iteration={t}, {gc_stats[0]["collections"]}, {gc_stats[1]["collections"]}, {gc_stats[2]["collections"]}')
+            LOGGER.info(f'TAR: iteration={t}')
 
             unassessed_document_ids = assessor.get_unassessed_dids()
             # test_features = ranker.get_feature_by_did(unassessed_document_ids)
@@ -161,7 +160,7 @@ async def fuzzy_artmap_method(data_name, topic_set, topic_id,
                 LOGGER.info("Starting assessed document training")
                 assessed_labels = [assessor.get_rel_label(doc_id) for doc_id in selected_dids]
                 assesed_features = ranker.get_feature_by_did(selected_dids)
-                await ranker.train(assesed_features, assessed_labels)
+                await ranker.train(assesed_features, assessed_labels, selected_dids)
                 await ranker.remove_docs_from_cache(selected_dids)
                 LOGGER.info(f"Assessed document training complete - {len(selected_dids):,} documents")
             iteration_duration = datetime.now() - iteration_start_time
@@ -215,14 +214,16 @@ if __name__ == '__main__':
     x = tf_idf_params
 
     
-    fuzzy_artmap_params = make_fuzzy_artmap_params(0.95, 50, "famdg", False)
-    fuzzy_artmap_params["scheduler_address"] = "localhost:8786"
+    fuzzy_artmap_params = make_fuzzy_artmap_params(0.95, 50, "famdg", 70)
+    fuzzy_artmap_params["scheduler_address"] = "localhost:8786"    
 
     # experiments = build_experiments(fuzzy_artmap_params["model_type"], "20newsgroups", ["comp.sys.ibm.pc.hardware", "sci.med", "misc.forsale"], [VectorizerType.tf_idf, VectorizerType.glove, VectorizerType.sbert, VectorizerType.word2vec], "re-run with fixed training labels")
     # experiments = build_experiments(fuzzy_artmap_params["model_type"], "reuters21578", ["earn", "money-fx", "crude"], [VectorizerType.tf_idf, VectorizerType.glove, VectorizerType.sbert, VectorizerType.word2vec], "re-run with fixed training labels")
     # experiments = {"famg-20newsgroups-forsale-tf_idf-local_perf-rerun": {"corpus_params": {"corpus_name": "20newsgroups", "collection_name": "20newsgroups", "topic_id": "misc.forsale", "topic_set": "misc.forsale"}, "vectorizer_params": None, "vectorizer_type": VectorizerType.tf_idf, "run_notes": "local perf test FAMG CPU re-run"}}
     # experiments = {"famg-reuters21578-earn-tf_idf-quick_test": {"corpus_params": {"corpus_name": "reuters21578", "collection_name": "reuters21578", "topic_id": "earn", "topic_set": "misc.forsale"}, "vectorizer_params": None, "vectorizer_type": VectorizerType.tf_idf, "run_notes": "quick test max nodes mode"}}
     experiments = build_experiments(fuzzy_artmap_params["model_type"], "reuters21578", ["earn"], [VectorizerType.tf_idf], "testing GPU & GC perf mods")
+    # experiments = build_experiments(fuzzy_artmap_params["model_type"], "20newsgroups", ["alt.atheism.short"], [VectorizerType.tf_idf], "caching test")
+    # experiments[list(experiments.keys())[0]]["corpus_params"]["corpus_name"] = "alt.atheism.short"
     # experiments = build_experiments(fuzzy_artmap_params["model_type"], "reuters21578", ["crude"], [VectorizerType.tf_idf], "testing GPU & GC perf mods")
     for param_group_name, experiment_params in experiments.items():
         LOGGER.info(f"starting experiment: {param_group_name}")

@@ -108,7 +108,7 @@ class Ranker(object):
     """
     Manager the ranking module of the TAR framework.
     """
-    def __init__(self, model_type='lr', min_df=2, C=1.0, random_state=0, rho_a_bar=0.95, number_of_mapping_nodes=36, scheduler_address=None, max_nodes_mode=False):
+    def __init__(self, model_type='lr', min_df=2, C=1.0, random_state=0, rho_a_bar=0.95, number_of_mapping_nodes=36, scheduler_address=None, max_nodes = None):
         self.fam_models = ['fam', 'famg', 'famd', 'famdg']
         self.model_type = model_type
         self.random_state = random_state
@@ -122,7 +122,7 @@ class Ranker(object):
         self.word2vec_model = None
         self.missing_tokens = []
         self.scheduler_address = scheduler_address
-        self.max_nodes_mode = max_nodes_mode
+        self.max_nodes = max_nodes
         self.set_did_2_feature_params = None
 
         if self.model_type == 'lr':
@@ -296,13 +296,13 @@ class Ranker(object):
                 self.model = FuzzyArtMap(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar)
         elif self.model_type == "famg":
             if not self.model:                
-                self.model = FuzzyArtMapGpu(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, max_nodes_mode=self.max_nodes_mode)
+                self.model = FuzzyArtMapGpu(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, max_nodes=self.max_nodes)
         elif self.model_type == "famd":
             if not self.model:
                 self.model = FuzzyArtmapDistributed(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, scheduler_address=self.scheduler_address)
         elif self.model_type == "famdg":
             if not self.model:
-                self.model = FuzzyArtmapGpuDistributed(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, scheduler_address=self.scheduler_address, max_nodes_mode=self.max_nodes_mode)
+                self.model = FuzzyArtmapGpuDistributed(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, scheduler_address=self.scheduler_address, max_nodes=self.max_nodes)
                 await self.model.initialize_workers()
 
         if self.model_type in self.fam_models:
@@ -323,7 +323,7 @@ class Ranker(object):
         else:
             pass
 
-    async def train(self, features, labels):
+    async def train(self, features, labels, doc_ids = None):
         if self.model_type in self.fam_models:
             number_of_features = features.shape[1]
 
@@ -343,13 +343,13 @@ class Ranker(object):
             self.model = FuzzyArtMap(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar)
             model = self.model
         elif self.model_type == "famg" and not self.model:
-            self.model = FuzzyArtMapGpu(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, max_nodes_mode=self.max_nodes_mode)
+            self.model = FuzzyArtMapGpu(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, max_nodes=self.max_nodes)
             model = self.model
         elif self.model_type == "famd" and not self.model:
             self.model = FuzzyArtmapDistributed(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, scheduler_address=self.scheduler_address)
             model = self.model
         elif self.model_type == "famdg" and not self.model:
-            self.model = FuzzyArtmapGpuDistributed(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, scheduler_address=self.scheduler_address, max_nodes_mode=self.max_nodes_mode)
+            self.model = FuzzyArtmapGpuDistributed(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, scheduler_address=self.scheduler_address, max_nodes=self.max_nodes)
             model = self.model
             await self.model.initialize_workers()
             await model.fit(features, labels)
@@ -359,7 +359,7 @@ class Ranker(object):
         if self.model_type != "famdg":
             model.fit(features, labels)
         else:
-            await model.fit(features, labels)
+            await model.fit(features, labels, doc_ids)
         # logging.info('Ranker.train is done.')
 
     def predict(self, features):

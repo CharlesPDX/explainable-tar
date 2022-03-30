@@ -27,23 +27,23 @@ import tornado.ioloop
 
 
 class FuzzyArtmapGpuDistributed:
-    def __init__(self, f1_size: int = 10, f2_size: int = 10, number_of_categories: int = 2, rho_a_bar = 0, scheduler_address=None, max_nodes_mode = False, use_cuda_if_available = False):
+    def __init__(self, f1_size: int = 10, f2_size: int = 10, number_of_categories: int = 2, rho_a_bar = 0, scheduler_address=None, max_nodes = None, use_cuda_if_available = False):
         self.rho_a_bar = rho_a_bar  # Baseline vigilance for ARTa, in range [0,1]
         self.f2_size = f2_size
         self.f1_size = f1_size
         self.number_of_categories = number_of_categories
         self.classes_ = np.array([1])
-        self.max_nodes_mode = max_nodes_mode
+        self.max_nodes = max_nodes
         self.use_cuda_if_available = use_cuda_if_available
         self.client = FuzzyArtmapWorkerClient(scheduler_address)
-        self.training_fuzzy_artmap = LocalFuzzyArtMapGpu(self.f1_size, self.f2_size, self.number_of_categories, self.rho_a_bar, max_nodes_mode, use_cuda_if_available)
+        self.training_fuzzy_artmap = LocalFuzzyArtMapGpu(self.f1_size, self.f2_size, self.number_of_categories, self.rho_a_bar, max_nodes, use_cuda_if_available)
         self.weight_ab = self.training_fuzzy_artmap.weight_ab        
     
     async def initialize_workers(self):
         logger.info("Getting workers")
         await self.client.get_workers()
         logger.info(f"Initializing {len(self.client.workers)} workers")
-        params = [self.f1_size, self.f2_size, self.number_of_categories, self.rho_a_bar, self.max_nodes_mode, self.use_cuda_if_available]
+        params = [self.f1_size, self.f2_size, self.number_of_categories, self.rho_a_bar, self.max_nodes, self.use_cuda_if_available]
         await self.client.init_workers(params)
         logger.info("Workers initialized")
     
@@ -57,9 +57,9 @@ class FuzzyArtmapGpuDistributed:
     async def remove_documents_from_cache(self, document_ids):
         await self.client.remove_documents_from_cache(document_ids)
     
-    async def fit(self, input_vectors, class_vectors):
+    async def fit(self, input_vectors, class_vectors, doc_ids):
         self.training_fuzzy_artmap.fit(input_vectors, class_vectors)
-        await self.client.fit([input_vectors, class_vectors])
+        await self.client.fit([input_vectors, class_vectors, doc_ids])
         # self.training_fuzzy_artmap.clear_updated_nodes()
 
     async def predict_proba(self, doc_ids: list):
@@ -68,7 +68,7 @@ class FuzzyArtmapGpuDistributed:
 
 
 class LocalFuzzyArtMapGpu:
-    def __init__(self, f1_size: int = 10, f2_size: int = 10, number_of_categories: int = 2, rho_a_bar = 0, max_nodes_mode = False, use_cuda_if_available = False):
+    def __init__(self, f1_size: int = 10, f2_size: int = 10, number_of_categories: int = 2, rho_a_bar = 0, max_nodes = None, use_cuda_if_available = False):
         self.alpha = 0.001  # "Choice" parameter > 0. Set small for the conservative limit (Fuzzy AM paper, Sect.3)
         self.beta = 1  # Learning rate. Set to 1 for fast learning
         self.beta_ab = 1 #ab learning rate
@@ -77,7 +77,7 @@ class LocalFuzzyArtMapGpu:
         self.rho_ab = 0.95          # Map field vigilance, in [0,1]
         self.epsilon = 0.001        # Fab mismatch raises ARTa vigilance to this much above what is needed to reset ARTa
 
-        self.max_nodes_mode = max_nodes_mode
+        self.max_nodes = max_nodes
 
         if use_cuda_if_available and torch.cuda.is_available():
             self.device = torch.device("cuda")
@@ -100,7 +100,7 @@ class LocalFuzzyArtMapGpu:
         self.node_increase_step = 5 # number of F2 nodes to add when required
         self.number_of_increases = 0
     
-    def _resonance_search(self, input_vector: torch.tensor, already_reset_nodes: List[int], rho_a: float, allow_category_growth = True):
+    def _resonance_search(self, input_vector: torch.tensor, already_reset_nodes: List[int], rho_a: float):
         resonant_a = False
         N, S, T = self.calculate_activation(input_vector)
         while not resonant_a:
@@ -116,7 +116,7 @@ class LocalFuzzyArtMapGpu:
 
             # Creating a new node if we've reset all of them
             if len(already_reset_nodes) >= N:                
-                if allow_category_growth:
+                if self.max_nodes is None or self.max_nodes >= (N + self.node_increase_step):
                     self.weight_a = torch.vstack((self.weight_a, torch.ones((self.node_increase_step,  self.weight_a.shape[1]), device=self.device, dtype=torch.float)))
                     self.weight_ab = torch.vstack((self.weight_ab, torch.ones((self.node_increase_step, self.weight_ab.shape[1]), device=self.device, dtype=torch.float)))
                     self.number_of_increases += 1
@@ -135,22 +135,15 @@ class LocalFuzzyArtMapGpu:
     
     def calculate_activation(self, input_vector):
         N = self.weight_a.shape[0]  # Count how many F2a nodes we have
-
         A_for_each_F2_node = input_vector * torch.ones((N, 1), device=self.device, dtype=torch.float)
-            # Matrix containing a copy of A for each F2 node. 
-            # was optimization for Matlab, might be different in Python
-
         A_AND_w = torch.minimum(A_for_each_F2_node, self.weight_a)
-            # Fuzzy AND = min
-
         S = torch.sum(A_AND_w, 1)
-            # Row vector of signals to F2 nodes
-
         T = S / (self.alpha + torch.sum(self.weight_a, 1))
-        # Choice function vector for F2
+
         return N,S,T
+    
     # @profile
-    def train(self, input_vector: np.array, class_vector: np.array):
+    def train(self, input_vector: torch.tensor, class_vector: torch.tensor):
         rho_a = self.rho_a_bar # We start off with ARTa vigilance at baseline
         resonant_ab = False # Not resonating in the Fab match layer
         already_reset_nodes = [] # We haven't rest any ARTa nodes for this input pattern yet, maintain list between resonance searches of Fa
@@ -159,7 +152,7 @@ class LocalFuzzyArtMapGpu:
         input_vector = input_vector.to(self.device)
         
         while not resonant_ab:            
-            J, x = self._resonance_search(input_vector, already_reset_nodes, rho_a, not self.max_nodes_mode)
+            J, x = self._resonance_search(input_vector, already_reset_nodes, rho_a)
             z = torch.minimum(class_vector, self.weight_ab[J, None])
             
             resonance = torch.sum(z, 1)/torch.sum(class_vector, 1)
@@ -216,11 +209,13 @@ class FuzzyArtMapGpuWorker:
         self.epsilon = 0.001        # Fab mismatch raises ARTa vigilance to this much above what is needed to reset ARTa
 
         self.rho_a_bar = None  # Baseline vigilance for ARTa, in range [0,1]
-        self.max_nodes_mode = None
+        self.max_nodes = None
+        self.class_vectors = None
+        self.A_for_each_F2_node = None
 
-    def init(self, f1_size: int = 10, f2_size: int = 10, number_of_categories: int = 2, rho_a_bar = 0, max_nodes_mode = False, use_cuda_if_available = False):
+    def init(self, f1_size: int = 10, f2_size: int = 10, number_of_categories: int = 2, rho_a_bar = 0, max_nodes = None, use_cuda_if_available = False):
         self.rho_a_bar = rho_a_bar  # Baseline vigilance for ARTa, in range [0,1]
-        self.max_nodes_mode = max_nodes_mode
+        self.max_nodes = max_nodes
         if use_cuda_if_available and torch.cuda.is_available():
             self.device = torch.device("cuda")
         else:
@@ -230,16 +225,13 @@ class FuzzyArtMapGpuWorker:
         self.weight_a = torch.ones((f2_size, f1_size), device=self.device, dtype=torch.float)
         self.input_vector_sum = f1_size / 2
         self.weight_ab = torch.ones((f2_size, number_of_categories), device=self.device, dtype=torch.float)
+        self.class_vectors = {
+            0: FuzzyArtMapGpuWorker.complement_encode(torch.tensor([[0]], dtype=torch.float)),
+            1: FuzzyArtMapGpuWorker.complement_encode(torch.tensor([[1]], dtype=torch.float)),
+        }
+        self.ones = torch.ones((f2_size, 1), device=self.device, dtype=torch.float)
 
-    # def update_weights(self, number_of_new_nodes, update_indexes, a_updates, ab_updates):
-    #     if number_of_new_nodes > 0:
-    #         self.weight_a = torch.vstack((self.weight_a, torch.ones((number_of_new_nodes,  self.weight_a.shape[1]), device=self.device, dtype=torch.float)))
-    #         self.weight_ab = torch.vstack((self.weight_ab, torch.ones((number_of_new_nodes, self.weight_ab.shape[1]), device=self.device, dtype=torch.float)))
-    #         self.S_cache = torch.hstack((self.S_cache, torch.ones((self.corpus.shape[0], number_of_new_nodes), device=self.device, dtype=torch.float)))
-    #     self.weight_a[update_indexes] = a_updates
-    #     self.weight_ab[update_indexes] = ab_updates
-    #     self.recompute_S_cache(update_indexes)
-    def _resonance_search(self, input_vector: torch.tensor, already_reset_nodes: List[int], rho_a: float, allow_category_growth = True):
+    def _resonance_search(self, input_vector: torch.tensor, already_reset_nodes: List[int], rho_a: float):
         resonant_a = False
         N, S, T = self.calculate_activation(input_vector)
         while not resonant_a:
@@ -255,10 +247,11 @@ class FuzzyArtMapGpuWorker:
 
             # Creating a new node if we've reset all of them
             if len(already_reset_nodes) >= N:                
-                if allow_category_growth:
+                if self.max_nodes is None or self.max_nodes >= (N + self.node_increase_step):
                     self.weight_a = torch.vstack((self.weight_a, torch.ones((self.node_increase_step,  self.weight_a.shape[1]), device=self.device, dtype=torch.float)))
                     self.weight_ab = torch.vstack((self.weight_ab, torch.ones((self.node_increase_step, self.weight_ab.shape[1]), device=self.device, dtype=torch.float)))
                     self.S_cache = torch.hstack((self.S_cache, torch.ones((self.corpus.shape[0], self.node_increase_step), device=self.device, dtype=torch.float)))
+                    self.ones = torch.ones((self.weight_a.shape[0], 1), device=self.device, dtype=torch.float)
                     self.number_of_increases += 1
                     # Give the new F2a node a w_ab entry, this new node should win
                 else:                   
@@ -275,12 +268,11 @@ class FuzzyArtMapGpuWorker:
     
     def calculate_activation(self, input_vector):
         N = self.weight_a.shape[0]  # Count how many F2a nodes we have
-
-        A_for_each_F2_node = input_vector * torch.ones((N, 1), device=self.device, dtype=torch.float)
-            # Matrix containing a copy of A for each F2 node. 
-            # was optimization for Matlab, might be different in Python
-
-        A_AND_w = torch.minimum(A_for_each_F2_node, self.weight_a)
+        if N > self.A_for_each_F2_node.shape[0]:
+            self.A_for_each_F2_node = torch.empty((N, self.corpus.shape[1]), device=self.device, dtype=torch.float)
+        
+        torch.mul(input_vector, self.ones, out=self.A_for_each_F2_node)
+        A_AND_w = torch.minimum(self.A_for_each_F2_node, self.weight_a)
             # Fuzzy AND = min
 
         S = torch.sum(A_AND_w, 1)
@@ -290,7 +282,7 @@ class FuzzyArtMapGpuWorker:
         # Choice function vector for F2
         return N,S,T
 
-    def train(self, input_vector: np.array, class_vector: np.array):
+    def train(self, input_vector: torch.tensor, class_vector: torch.tensor):
         rho_a = self.rho_a_bar # We start off with ARTa vigilance at baseline
         resonant_ab = False # Not resonating in the Fab match layer
         already_reset_nodes = [] # We haven't rest any ARTa nodes for this input pattern yet, maintain list between resonance searches of Fa
@@ -299,7 +291,7 @@ class FuzzyArtMapGpuWorker:
         input_vector = input_vector.to(self.device)
         
         while not resonant_ab:            
-            J, x = self._resonance_search(input_vector, already_reset_nodes, rho_a, not self.max_nodes_mode)
+            J, x = self._resonance_search(input_vector, already_reset_nodes, rho_a)
             z = torch.minimum(class_vector, self.weight_ab[J, None])
             
             resonance = torch.sum(z, 1)/torch.sum(class_vector, 1)
@@ -321,47 +313,37 @@ class FuzzyArtMapGpuWorker:
         self.weight_ab[J, None] = (self.beta_ab * z) + ((1-self.beta_ab) * self.weight_ab[J, None])
         self.committed_nodes.add(J)
 
-    def fit(self, input_vectors, class_vectors):
+    def fit(self, input_vectors, class_vectors, doc_ids):
         for document_index, input_vector in enumerate(input_vectors):
-            self.train(FuzzyArtMapGpuWorker.complement_encode(torch.tensor(input_vector.toarray(), dtype=torch.float)), FuzzyArtMapGpuWorker.complement_encode(torch.tensor([[class_vectors[document_index]]], dtype=torch.float)))            
+            doc_id = doc_ids[document_index]
+            if doc_id in self.document_index_mapping:
+                self.train(self.corpus[self.document_index_mapping[doc_id]], self.class_vectors[class_vectors[document_index]])
+            else:
+                self.train(FuzzyArtMapGpuWorker.complement_encode(torch.tensor(input_vector.toarray(), dtype=torch.float)), self.class_vectors[class_vectors[document_index]])
         logger.info(f"updated nodes: {','.join([str(J) for J in self.updated_nodes])}")
         self.recompute_S_cache()
         self.updated_nodes.clear()
-        # updated_nodes = list(self.updated_nodes)
-        # number_of_added_nodes = self.number_of_increases * self.node_increase_step
-        # return number_of_added_nodes, updated_nodes
-
-    def cache_corpus(self, corpus):
-        print(f"aa setting mapping to: {len(corpus)}")
-        self.corpus = FuzzyArtMapGpuWorker.complement_encode(torch.tensor(corpus, device="cpu", dtype=torch.float))
-        self.excluded_document_ids = set()
-        N = self.weight_a.shape[0]
-        A_AND_w =  torch.empty(self.weight_a.shape, device=self.device, dtype=torch.float)
-        self.S_cache = torch.zeros((self.corpus.shape[0], N), device=self.device, dtype=torch.float)
-        ones = torch.ones((N, 1), device=self.device, dtype=torch.float)
-        for i in range(self.corpus.shape[0]):
-            A_for_each_F2_node = self.corpus[i].to(self.device) * ones
-            torch.minimum(A_for_each_F2_node, self.weight_a, out=A_AND_w)
-            self.S_cache[i] = torch.sum(A_AND_w, 1)
-        print("worker corpus caching complete")
 
     def cache_doc_mapping(self, ranker_params, document_index_mapping: dict):
-        from ranking import Ranker, VectorizerType
+        from ranking import Ranker
         print(f"bb setting mapping to: {len(document_index_mapping)}")
         self.document_index_mapping = document_index_mapping
         ranker = Ranker("famdg")
         ranker.set_did_2_feature(ranker_params[0], None, None, ranker_params[1], ranker_params[2], ranker_params[3])
         corpus = ranker.get_feature_by_did(document_index_mapping.keys())
         self.corpus = FuzzyArtMapGpuWorker.complement_encode(torch.tensor(corpus.toarray(), device="cpu", dtype=torch.float))
+        
         self.excluded_document_ids = set()
         N = self.weight_a.shape[0]
         A_AND_w =  torch.empty(self.weight_a.shape, device=self.device, dtype=torch.float)
         self.S_cache = torch.zeros((self.corpus.shape[0], N), device=self.device, dtype=torch.float)
-        ones = torch.ones((N, 1), device=self.device, dtype=torch.float)
+        self.A_for_each_F2_node = torch.empty((N, self.corpus.shape[1]), device=self.device, dtype=torch.float)
+
         for i in range(self.corpus.shape[0]):
-            A_for_each_F2_node = self.corpus[i].to(self.device) * ones
-            torch.minimum(A_for_each_F2_node, self.weight_a, out=A_AND_w)
+            torch.mul(self.corpus[i].to(self.device), self.ones, out=self.A_for_each_F2_node)
+            torch.minimum(self.A_for_each_F2_node, self.weight_a, out=A_AND_w)
             self.S_cache[i] = torch.sum(A_AND_w, 1)
+
         print("worker corpus caching complete")
 
     def remove_documents_from_cache(self, document_ids):
@@ -372,12 +354,12 @@ class FuzzyArtMapGpuWorker:
         updated_nodes = list(self.updated_nodes)
         N = self.weight_a.shape[0]
         A_AND_w =  torch.empty((len(updated_nodes),self.weight_a.shape[1]), device=self.device, dtype=torch.float)
-        ones = torch.ones((N, 1), device=self.device, dtype=torch.float)
+        
         for document_id, index in self.document_index_mapping.items():
             if document_id in self.excluded_document_ids:
                 continue
-            A_for_each_F2_node = (self.corpus[index].to(self.device)) * ones
-            torch.minimum(A_for_each_F2_node[updated_nodes], self.weight_a[updated_nodes], out=A_AND_w)
+            torch.mul(self.corpus[index].to(self.device), self.ones, out=self.A_for_each_F2_node)
+            torch.minimum(self.A_for_each_F2_node[updated_nodes], self.weight_a[updated_nodes], out=A_AND_w)
             self.S_cache[index, updated_nodes] = torch.sum(A_AND_w, 1)
 
     def _cached_resonance_search(self, cached_S):
@@ -421,19 +403,10 @@ class FuzzyArtmapWorkerServer(TCPServer):
         gc.disable()
 
     async def handle_stream(self, stream, address):
-        buffer_size = 4096
-        total_data = bytearray()
         while True:
             try:
                 data = await stream.read_until(self.end_mark)
-                print(f"{len(data)}")
                 await self.handle_data(data[:-3], stream)
-                # await stream.write(data)
-                # data = await stream.read_bytes(buffer_size, True)                
-                # total_data.extend(data)
-                # if not data or len(data) < buffer_size:
-                #     await self.handle_data(total_data, stream)
-                #     total_data.clear()
             except StreamClosedError:
                 print("connection closed")
                 break
@@ -454,44 +427,19 @@ class FuzzyArtmapWorkerServer(TCPServer):
             await stream.write(self.end)
             logger.info("init completed")
 
-        elif data[0] == 100: # "d" - cache doc mapping
-            logger.info(f"{len(data)}")
+        elif data[0] == 99: # "c" - cache doc mapping/corpus
             ranker_params, doc_index = pickle.loads(data[1:])
             self.model.cache_doc_mapping(ranker_params, doc_index)   
-            # await stream.write(self.end)
             await stream.write(b'corpus')
-            logger.info("cache doc mapping completed")
+            logger.info("caching completed")
 
         elif data[0] == 112: # "p" - predict
             doc_ids = pickle.loads(data[1:])
             results = self.model.predict_proba(doc_ids)
             await stream.write(pickle.dumps(results)+self.end_mark)
             logger.info("predict completed")            
-        
-        elif data[0] == 117: # "u" - update weights
-            logger.info(f"Updated weights payload size: {len(data)}")
-            serialized_data = io.BytesIO(data[1:])
-            # serialized_data.seek(0)
-            # number_of_new_nodes, updated_nodes, updated_a_weights, updated_ab_weights = torch.load(serialized_data)
-            # self.model.update_weights(number_of_new_nodes, updated_nodes, updated_a_weights, updated_ab_weights)
-            params = torch.load(serialized_data)
-            self.model.update_weights(params["number_of_new_nodes"], params["updated_nodes"], params["updated_a_weights"], params["updated_ab_weights"])
-            await stream.write(self.end)
-            logger.info("update weights completed")
-        
-        elif data[0] == 99: # "c" - cache corpus
-            print(f"{len(data)}")
-            numpy_data = io.BytesIO(data[1:-3])
-            # print(f"{numpy_data.getbuffer().count()}")
-            numpy_data.seek(0)
-            with np.load(numpy_data, allow_pickle=True) as d:
-                corpus_array = d["cache"]
-            self.model.cache_corpus(corpus_array) # TODO: somehow I don't think this is blocking
-            await stream.write(b'corpus')
-            logger.info("cache corpus completed")
 
         elif data[0] == 102: # "f" - fit data
-            logger.info(f"Training data size: {len(data)}")
             params = pickle.loads(data[1:])
             self.model.fit(*params)
             await stream.write(self.end)
@@ -506,10 +454,8 @@ class FuzzyArtmapWorkerClient():
         self.workers = []
         self.init_header = "i".encode("utf-8")
         self.get_worker_address_header = "g".encode("utf-8")
-        self.cache_corpus_header = "c".encode("utf-8")
-        self.cache_doc_mapping_header = "d".encode("utf-8")
+        self.cache_header = "c".encode("utf-8")
         self.remove_documents_header = "r".encode("utf-8")
-        self.update_weights_header = "u".encode("utf-8")
         self.predict_header = "p".encode("utf-8")
         self.fit_header = "f".encode("utf-8")
         self.payload_seperator = "|".encode("utf-8")
@@ -545,7 +491,7 @@ class FuzzyArtmapWorkerClient():
         caching_futures = []
         for index, worker in enumerate(self.workers):
             chunk_document_id_index = {document_id: index for index, document_id in enumerate(document_index_chunks[index])}
-            caching_futures.append(worker.write(self.cache_doc_mapping_header + pickle.dumps((ranker_params, chunk_document_id_index)) + self.sending_end_mark))
+            caching_futures.append(worker.write(self.cache_header + pickle.dumps((ranker_params, chunk_document_id_index)) + self.sending_end_mark))
 
         for index in range(len(self.workers)):
             caching_futures.append(self.workers[index].read_until(b'corpus'))
@@ -574,19 +520,6 @@ class FuzzyArtmapWorkerClient():
         await asyncio.gather(*futures)
         await self.get_responses()
         logger.info("remove docs completed")
-
-    async def update_weights(self, params):
-        logger.info("update weights entered")
-        futures = []
-        buffer = io.BytesIO()
-        torch.save(params, buffer)
-        # buffer.seek(0)
-        for worker in self.workers:
-           futures.append(worker.write(self.update_weights_header + buffer.getbuffer() + self.sending_end_mark))
-        
-        await asyncio.gather(*futures)
-        await self.get_responses()
-        logger.info("update weights completed")
     
     async def predict_proba(self, doc_ids):
         logger.info("predict entered")
