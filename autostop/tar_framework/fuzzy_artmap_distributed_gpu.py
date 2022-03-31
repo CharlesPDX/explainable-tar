@@ -548,9 +548,14 @@ async def register_worker():
     stream = await client.connect(host, int(port))
     if args.localhost:
         data = f"r{socket.gethostbyname('localhost')}:{args.port}"
-    else:
+    else:        
         hostname = socket.gethostname()
-        data = f"r{socket.gethostbyname(hostname)}:{args.port}"
+        local_ip_address = socket.gethostbyname(hostname)
+        if local_ip_address == "127.0.0.1":
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(('8.8.8.8', 1))  # connect() for UDP doesn't send packets
+            local_ip_address = s.getsockname()[0]
+        data = f"r{local_ip_address}:{args.port}"
     print(f"registering worker at {data}")
     data = data.encode("utf-8")
     await stream.write(data)
