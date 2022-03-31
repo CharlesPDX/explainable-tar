@@ -237,7 +237,7 @@ class FuzzyArtMapGpuWorker:
         while not resonant_a:
             
             T[already_reset_nodes] = torch.zeros((len(already_reset_nodes), ), dtype=torch.float, device=self.device)
-            J = np.argmax(T)
+            J = torch.argmax(T)
             membership_degree = S[J]/self.input_vector_sum
             if membership_degree.item() >= rho_a or math.isclose(membership_degree.item(), rho_a):
                 resonant_a = True
@@ -500,7 +500,6 @@ class FuzzyArtmapWorkerClient():
         logger.info("cache corpus completed")
     
     async def remove_documents_from_cache(self, document_ids):
-        logger.info("remove docs entered")
         futures = []
         pickled_doc_ids = pickle.dumps(document_ids)
         for worker in self.workers:
@@ -508,10 +507,8 @@ class FuzzyArtmapWorkerClient():
 
         await asyncio.gather(*futures)
         await self.get_responses()
-        logger.info("remove docs completed")
 
     async def fit(self, params):
-        logger.info("fit entered")
         futures = []
         pickled_params= pickle.dumps(params)
         for worker in self.workers:
@@ -519,7 +516,6 @@ class FuzzyArtmapWorkerClient():
 
         await asyncio.gather(*futures)
         await self.get_responses()
-        logger.info("remove docs completed")
     
     async def predict_proba(self, doc_ids):
         logger.info("predict entered")
