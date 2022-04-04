@@ -411,6 +411,7 @@ class FuzzyArtmapWorkerServer(TCPServer):
         # self.end = "\n".encode("utf-8")
         self.end_mark = "|||".encode("utf-8")
         self.protocol_overhead = 8
+        self.prediction_response_header = "r".encode("utf-8")
         gc.disable()
 
     async def handle_stream(self, stream, address):
@@ -482,7 +483,9 @@ class FuzzyArtmapWorkerServer(TCPServer):
         elif data[0] == 112: # "p" - predict
             doc_ids = pickle.loads(data[5:])
             results = self.model.predict_proba(doc_ids)
-            await stream.write(pickle.dumps(results)+self.end_mark)
+            pickled_results = pickle.dumps(results)
+            results_length = struct.pack("I", len(pickled_results))
+            await stream.write(self.prediction_response_header + results_length + pickled_results + self.end_mark)
             logger.info("predict completed")            
 
         elif data[0] == 102: # "f" - fit data
@@ -505,6 +508,7 @@ class FuzzyArtmapWorkerClient():
         self.predict_header = "p".encode("utf-8")
         self.fit_header = "f".encode("utf-8")
         self.payload_seperator = "|".encode("utf-8")
+        self.prediction_response_header = "r".encode("utf-8")
         # self.end_mark = b"\n"
         self.end_mark = "|||".encode("utf-8")
     
@@ -548,7 +552,7 @@ class FuzzyArtmapWorkerClient():
     async def remove_documents_from_cache(self, document_ids):
         futures = []
         pickled_doc_ids = pickle.dumps(document_ids)
-        doc_id_length = len(pickled_doc_ids)
+        doc_id_length = struct.pack("I", len(pickled_doc_ids))
         for worker in self.workers:
            futures.append(worker.write(self.remove_documents_header + doc_id_length + pickled_doc_ids + self.end_mark))
 
@@ -580,6 +584,9 @@ class FuzzyArtmapWorkerClient():
 
     def check_response(self, response):
         if len(response) != 3:
+            if response[0] == 114 and response[-3:] == self.end_mark:
+                return
+
             if chr(response[0]) == "e":
                 worker_id = struct.unpack("I", response[1:5])[0]
                 error_stop_index = struct.unpack("I", response[5:9])[0] + 9
@@ -588,15 +595,14 @@ class FuzzyArtmapWorkerClient():
                 logger.error(exception_message)
                 raise Exception(exception_message)
             else:
-                logger.error(f"unknown worker error - {response}")
-                raise Exception(f"unknown worker error - {response.decode('utf-8')}")
+                raise Exception(f"unknown worker error")
 
     async def single_predict(self, pickled_doc_ids, worker):
         params_size = struct.pack("I", len(pickled_doc_ids))
         worker.write(self.predict_header + params_size + pickled_doc_ids + self.end_mark)
         data = await worker.read_until(self.end_mark)
         self.check_response(data)
-        return pickle.loads(data[:-3])
+        return pickle.loads(data[5:-3])
 
     async def get_responses(self):
         response_futures = []
