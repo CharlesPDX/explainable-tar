@@ -7,10 +7,12 @@ import gc
 import asyncio
 import socket
 import pickle
-import io
 import argparse
 import math
+import struct
+import traceback
 from typing import List
+from datetime import datetime
 import logging
 logging.basicConfig(level = logging.INFO, format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -18,7 +20,6 @@ logger = logging.getLogger(__name__)
 
 import numpy as np
 import torch
-from scipy.sparse.csr import csr_matrix
 
 from tornado.tcpserver import TCPServer
 from tornado.tcpclient import TCPClient
@@ -66,6 +67,9 @@ class FuzzyArtmapGpuDistributed:
         results = await self.client.predict_proba(doc_ids)
         return np.array(results)
 
+    def save_model(self, descriptor):
+        return self.training_fuzzy_artmap.save_model(descriptor)
+
 
 class LocalFuzzyArtMapGpu:
     def __init__(self, f1_size: int = 10, f2_size: int = 10, number_of_categories: int = 2, rho_a_bar = 0, max_nodes = None, use_cuda_if_available = False):
@@ -106,7 +110,7 @@ class LocalFuzzyArtMapGpu:
         while not resonant_a:
             
             T[already_reset_nodes] = torch.zeros((len(already_reset_nodes), ), dtype=torch.float, device=self.device)
-            J = np.argmax(T)
+            J = torch.argmax(T)
             membership_degree = S[J]/self.input_vector_sum
             if membership_degree.item() >= rho_a or math.isclose(membership_degree.item(), rho_a):
                 resonant_a = True
@@ -184,6 +188,12 @@ class LocalFuzzyArtMapGpu:
     def clear_updated_nodes(self):
         self.updated_nodes.clear()
         self.number_of_increases = 0
+    
+    def save_model(self, descriptor):
+        model_timestamp = datetime.now().isoformat().replace("-", "_")
+        model_path = f"models/famgd_{model_timestamp}_{descriptor}.pt"
+        torch.save((self.weight_a, self.weight_ab), model_path)
+        return model_path
 
 
 class FuzzyArtMapGpuWorker:
@@ -326,7 +336,7 @@ class FuzzyArtMapGpuWorker:
 
     def cache_doc_mapping(self, ranker_params, document_index_mapping: dict):
         from ranking import Ranker
-        print(f"bb setting mapping to: {len(document_index_mapping)}")
+        logger.info(f"worker corpus caching {len(document_index_mapping)} documents")
         self.document_index_mapping = document_index_mapping
         ranker = Ranker("famdg")
         ranker.set_did_2_feature(ranker_params[0], None, None, ranker_params[1], ranker_params[2], ranker_params[3])
@@ -344,7 +354,7 @@ class FuzzyArtMapGpuWorker:
             torch.minimum(self.A_for_each_F2_node, self.weight_a, out=A_AND_w)
             self.S_cache[i] = torch.sum(A_AND_w, 1)
 
-        print("worker corpus caching complete")
+        logger.info("worker corpus caching complete")
 
     def remove_documents_from_cache(self, document_ids):
         for document_id in document_ids:
@@ -376,7 +386,7 @@ class FuzzyArtMapGpuWorker:
         return self.weight_ab[J, ], membership_degree # Fab activation vector & fuzzy membership value
 
     @staticmethod
-    def complement_encode(original_vector: np.array) -> np.array:
+    def complement_encode(original_vector: torch.tensor) -> torch.tensor:
         complement = 1-original_vector
         complement_encoded_value = torch.hstack((original_vector,complement))
         return complement_encoded_value
@@ -398,51 +408,87 @@ class FuzzyArtmapWorkerServer(TCPServer):
     def __init__(self, ssl_options = None, max_buffer_size = None, read_chunk_size = None) -> None:        
         super().__init__(ssl_options, max_buffer_size, read_chunk_size)
         self.model = None
-        self.end = "\n".encode("utf-8")
+        # self.end = "\n".encode("utf-8")
         self.end_mark = "|||".encode("utf-8")
+        self.protocol_overhead = 8
         gc.disable()
 
     async def handle_stream(self, stream, address):
         while True:
+            data_buffer = bytearray()
             try:
                 data = await stream.read_until(self.end_mark)
-                await self.handle_data(data[:-3], stream)
+                expected_length = struct.unpack("I", data[1:5])[0]
+                actual_length = len(data) - self.protocol_overhead
+                while actual_length != expected_length:
+                    logger.error(f"received {actual_length} so far, expected {expected_length} - waiting on remaining data")
+                    data_buffer.extend(data)
+                    data = await stream.read_until(self.end_mark)
+                    logger.error(f"received {len(data)} extra")
+                    actual_length += len(data)
+                    if actual_length == expected_length:
+                        logger.error(f"expected data arrived")
+                        data_buffer.extend(data)
+                        data = data_buffer
+                        break
+                try:
+                    await self.handle_data(data[:-3], stream)
+                    data_buffer.clear()
+                except Exception as e:
+                    traceback_string = ''.join(traceback.format_exception(etype=type(e), value=e, tb=e.__traceback__))
+                    logger.info(f"error running {chr(data[0])} operation - {traceback_string}")
+                    error_response = "e".encode("utf-8")
+                    worker_id = struct.pack("I", self.worker_index)
+                    error_bytes = traceback_string.encode("utf-8")
+                    error_length = struct.pack("I", len(error_bytes))
+                    await stream.write(error_response + worker_id + error_length + error_bytes + self.end_mark)
             except StreamClosedError:
-                print("connection closed")
+                logger.info("connection closed")
                 break
     
     async def handle_data(self, data, stream):
         logger.info(f"received header: {chr(data[0])}")
         if data[0] == 114: # "r" - remove doc ids
-            doc_ids = pickle.loads(data[1:])
+            expected_length = struct.unpack("I", data[1:5])[0]
+            actual_length = len(data) - 5
+            if actual_length != expected_length:
+                logger.error(f"received {actual_length} - expected {expected_length}")
+            doc_ids = pickle.loads(data[5:])
             self.model.remove_documents_from_cache(doc_ids)
-            await stream.write(self.end)
+            await stream.write(self.end_mark)
             logger.info("remove docs completed")
         
         elif data[0] == 105: # "i" - init
+            expected_length = struct.unpack("I", data[1:5])[0]
+            actual_length = len(data) - 5
+            if actual_length != expected_length:
+                logger.error(f"received {actual_length} - expected {expected_length}")
             self.model = FuzzyArtMapGpuWorker()
             gc.collect()
-            init_params = pickle.loads(data[1:])
+            self.worker_index = struct.unpack("I", data[5:9])[0]
+            logger.info(f"worker_id: {self.worker_index}")
+            init_params = pickle.loads(data[9:])
             self.model.init(*init_params)
-            await stream.write(self.end)
+            await stream.write(self.end_mark)
             logger.info("init completed")
 
         elif data[0] == 99: # "c" - cache doc mapping/corpus
-            ranker_params, doc_index = pickle.loads(data[1:])
+            ranker_params, doc_index = pickle.loads(data[5:])
             self.model.cache_doc_mapping(ranker_params, doc_index)   
-            await stream.write(b'corpus')
+            # await stream.write(b'corpus')
+            await stream.write(self.end_mark)
             logger.info("caching completed")
 
         elif data[0] == 112: # "p" - predict
-            doc_ids = pickle.loads(data[1:])
+            doc_ids = pickle.loads(data[5:])
             results = self.model.predict_proba(doc_ids)
             await stream.write(pickle.dumps(results)+self.end_mark)
             logger.info("predict completed")            
 
         elif data[0] == 102: # "f" - fit data
-            params = pickle.loads(data[1:])
+            params = pickle.loads(data[5:])
             self.model.fit(*params)
-            await stream.write(self.end)
+            await stream.write(self.end_mark)
             logger.info("training completed")
         
         else:
@@ -459,19 +505,18 @@ class FuzzyArtmapWorkerClient():
         self.predict_header = "p".encode("utf-8")
         self.fit_header = "f".encode("utf-8")
         self.payload_seperator = "|".encode("utf-8")
-        self.end_mark = b"\n"
-        self.sending_end_mark = "|||".encode("utf-8")
+        # self.end_mark = b"\n"
+        self.end_mark = "|||".encode("utf-8")
     
     async def get_workers(self):
         client = TCPClient()
-        print(f"connecting to registrar: {self.host}:{self.port}")
+        logger.info(f"connecting to registrar: {self.host}:{self.port}")
         stream = await client.connect(self.host, int(self.port))
         await stream.write(self.get_worker_address_header)
-        response = await stream.read_until(self.end_mark)
-        response = response.rstrip()
-        for worker_address in response.decode("utf-8").split("|"):            
+        response = await stream.read_until(self.end_mark)        
+        for worker_address in response[:-3].decode("utf-8").split(","):
             worker_host, worker_port = worker_address.split(":")
-            print(f"connecting to worker: {worker_address}")
+            logger.info(f"connecting to worker: {worker_address}")
             worker_stream = await client.connect(worker_host, int(worker_port))
             self.workers.append(worker_stream)
     
@@ -479,8 +524,9 @@ class FuzzyArtmapWorkerClient():
         logger.info("init workers entered")
         futures = []
         pickled_params = pickle.dumps(params)
-        for worker in self.workers:
-           futures.append(worker.write(self.init_header + pickled_params + self.sending_end_mark))
+        params_length = struct.pack("I", len(pickled_params) + 4)
+        for worker_index, worker in enumerate(self.workers):
+           futures.append(worker.write(self.init_header + params_length + struct.pack("I", worker_index) + pickled_params + self.end_mark))
         
         await asyncio.gather(*futures)
         await self.get_responses()
@@ -491,28 +537,30 @@ class FuzzyArtmapWorkerClient():
         caching_futures = []
         for index, worker in enumerate(self.workers):
             chunk_document_id_index = {document_id: index for index, document_id in enumerate(document_index_chunks[index])}
-            caching_futures.append(worker.write(self.cache_header + pickle.dumps((ranker_params, chunk_document_id_index)) + self.sending_end_mark))
+            pickled_index = pickle.dumps((ranker_params, chunk_document_id_index))
+            index_length = struct.pack("I", len(pickled_index))
+            caching_futures.append(worker.write(self.cache_header + index_length + pickled_index + self.end_mark))
 
-        for index in range(len(self.workers)):
-            caching_futures.append(self.workers[index].read_until(b'corpus'))
-        
         await asyncio.gather(*caching_futures)
+        await self.get_responses()
         logger.info("cache corpus completed")
     
     async def remove_documents_from_cache(self, document_ids):
         futures = []
         pickled_doc_ids = pickle.dumps(document_ids)
+        doc_id_length = len(pickled_doc_ids)
         for worker in self.workers:
-           futures.append(worker.write(self.remove_documents_header + pickled_doc_ids + self.sending_end_mark))
+           futures.append(worker.write(self.remove_documents_header + doc_id_length + pickled_doc_ids + self.end_mark))
 
         await asyncio.gather(*futures)
         await self.get_responses()
 
     async def fit(self, params):
         futures = []
-        pickled_params= pickle.dumps(params)
+        pickled_params = pickle.dumps(params)
+        params_size = struct.pack("I", len(pickled_params))
         for worker in self.workers:
-           futures.append(worker.write(self.fit_header + pickled_params + self.sending_end_mark))
+           futures.append(worker.write(self.fit_header + params_size + pickled_params + self.end_mark))
 
         await asyncio.gather(*futures)
         await self.get_responses()
@@ -530,22 +578,35 @@ class FuzzyArtmapWorkerClient():
         logger.info("predict completed")
         return results
 
+    def check_response(self, response):
+        if len(response) != 3:
+            if chr(response[0]) == "e":
+                worker_id = struct.unpack("I", response[1:5])[0]
+                error_stop_index = struct.unpack("I", response[5:9])[0] + 9
+                error_message = response[9:error_stop_index].decode("utf-8")
+                exception_message = f"worker {worker_id} returned error {error_message}"
+                logger.error(exception_message)
+                raise Exception(exception_message)
+            else:
+                logger.error(f"unknown worker error - {response}")
+                raise Exception(f"unknown worker error - {response.decode('utf-8')}")
+
     async def single_predict(self, pickled_doc_ids, worker):
-        worker.write(self.predict_header + pickled_doc_ids + self.sending_end_mark)
-        data = await worker.read_until(self.sending_end_mark)
+        params_size = struct.pack("I", len(pickled_doc_ids))
+        worker.write(self.predict_header + params_size + pickled_doc_ids + self.end_mark)
+        data = await worker.read_until(self.end_mark)
+        self.check_response(data)
         return pickle.loads(data[:-3])
 
     async def get_responses(self):
         response_futures = []
         for worker in self.workers:
-            response_futures.append(await worker.read_until(self.end_mark))
+            response = await worker.read_until(self.end_mark)
+            self.check_response(response)
+            response_futures.append(response)
         return response_futures
 
 async def register_worker():
-    client = TCPClient()
-    host, port = args.registrar.split(":")
-    print(f"connecting to registrar: {args.registrar}")
-    stream = await client.connect(host, int(port))
     if args.localhost:
         data = f"r{socket.gethostbyname('localhost')}:{args.port}"
     else:        
@@ -556,7 +617,12 @@ async def register_worker():
             s.connect(('8.8.8.8', 1))  # connect() for UDP doesn't send packets
             local_ip_address = s.getsockname()[0]
         data = f"r{local_ip_address}:{args.port}"
-    print(f"registering worker at {data}")
+    
+    client = TCPClient()
+    host, port = args.registrar.split(":")
+    logger.info(f"connecting to registrar: {args.registrar}")
+    stream = await client.connect(host, int(port))
+    logger.info(f"registering worker at {data}")
     data = data.encode("utf-8")
     await stream.write(data)
 
@@ -571,7 +637,7 @@ if __name__ == "__main__":
     
     tornado.ioloop.IOLoop.current().run_sync(register_worker)
     server = FuzzyArtmapWorkerServer()
-    print('Starting the server...')
+    logger.info('Starting the server...')
     server.listen(int(args.port))
     tornado.ioloop.IOLoop.current().start()
-    print('Server has shut down.')
+    logger.info('Server has shut down.')

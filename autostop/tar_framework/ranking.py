@@ -378,3 +378,9 @@ class Ranker(object):
         else:
             scores = []
         return scores
+    
+    def save_model(self, descriptor):
+        if self.model_type in self.fam_models:
+            return self.model.save_model(descriptor)
+        else:
+            raise NotImplementedError("Cannot save model")

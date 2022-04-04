@@ -6,6 +6,8 @@ class MetricType(Enum):
     init = auto()
     step = auto()
     final = auto()
+    error = auto()
+    model = auto()
 
 
 def calculate_ap(pid2label, ranked_pids, cutoff=0.5):

@@ -1,5 +1,10 @@
+images/
+
 # auto-stop-tar results
 ret/
+
+# Exclude models
+*.pt
 
 # Exclude saved, featurized data
 data/pickels/

@@ -272,8 +272,3 @@ def make_tf_idf_vectorizer_params(min_df, max_df, stop_words):
         tf_idf_params["stop_words"] = stop_words
     
     return tf_idf_params
-
-
-def make_fuzzy_artmap_params(vigilance, number_of_mapping_nodes, model_type, max_nodes = None):
-    fuzzy_artmap_params ={"rho_a_bar": vigilance, "number_of_mapping_nodes": number_of_mapping_nodes, "model_type": model_type, "max_nodes": max_nodes}
-    return fuzzy_artmap_params

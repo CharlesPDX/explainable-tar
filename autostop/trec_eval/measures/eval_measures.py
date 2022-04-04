@@ -2,6 +2,7 @@ __author__ = "Leif Azzopardi"
 
 
 from collections import defaultdict
+from logging import exception
 
 class EvalMeasure(object):
 
@@ -457,10 +458,13 @@ class CostBasedMeasure(EvalMeasure):
         # if you are missing all relevant documents, then the penalty sums to N*CP i.e. full penalty cost
 
         Pw = 0
-        for i in range(1, Mr):
-            Pw = Pw + ((Nu * CP) / pow(2.0,i))
-
-        self.total_cost_weighted = self.total_cost + Pw
+        try:
+            for i in range(1, Mr):
+                Pw = Pw + ((Nu * CP) / pow(2.0,i))            
+            
+            self.total_cost_weighted = self.total_cost + Pw
+        except Exception:
+            self.total_cost_weighted = -1
 
         self.savings_uniform = self.total_cost_uniform / self.max_assessment_cost
         self.savings_weighted = self.total_cost_weighted / self.max_assessment_cost
