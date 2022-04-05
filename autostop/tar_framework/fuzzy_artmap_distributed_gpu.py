@@ -190,7 +190,7 @@ class LocalFuzzyArtMapGpu:
         self.number_of_increases = 0
     
     def save_model(self, descriptor):
-        model_timestamp = datetime.now().isoformat().replace("-", "_")
+        model_timestamp = datetime.now().isoformat().replace("-", "_").replace(":", "_").replace(".", "_")
         model_path = f"models/famgd_{model_timestamp}_{descriptor}.pt"
         torch.save((self.weight_a, self.weight_ab), model_path)
         return model_path
