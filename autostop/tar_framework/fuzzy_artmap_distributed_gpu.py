@@ -26,7 +26,8 @@ from tornado.tcpclient import TCPClient
 from tornado.iostream import StreamClosedError
 import tornado.ioloop
 
-
+# TODO: Add option to use slow recode or not
+# TODO: Add param for beta_a to use if using slow recode
 class FuzzyArtmapGpuDistributed:
     def __init__(self, f1_size: int = 10, f2_size: int = 10, number_of_categories: int = 2, rho_a_bar = 0, scheduler_address=None, max_nodes = None, use_cuda_if_available = False):
         self.rho_a_bar = rho_a_bar  # Baseline vigilance for ARTa, in range [0,1]
@@ -573,13 +574,16 @@ class FuzzyArtmapWorkerClient():
     async def predict_proba(self, doc_ids):
         logger.info("predict entered")
         pickled_doc_ids = pickle.dumps(doc_ids)
+        params_size = struct.pack("I", len(pickled_doc_ids))
         futures = []
         for worker in self.workers:
-           futures.append(self.single_predict(pickled_doc_ids, worker))
-        worker_results = await asyncio.gather(*futures)
+            futures.append(worker.write(self.predict_header + params_size + pickled_doc_ids + self.end_mark))
+        
+        await asyncio.gather(*futures)
+        worker_results = await self.get_responses()
         results = []
         for result in worker_results:
-            results.extend(result)
+            results.extend(pickle.loads(result[5:-3]))
         logger.info("predict completed")
         return results
 
@@ -598,20 +602,17 @@ class FuzzyArtmapWorkerClient():
             else:
                 raise Exception(f"unknown worker error")
 
-    async def single_predict(self, pickled_doc_ids, worker):
-        params_size = struct.pack("I", len(pickled_doc_ids))
-        worker.write(self.predict_header + params_size + pickled_doc_ids + self.end_mark)
-        data = await worker.read_until(self.end_mark)
-        self.check_response(data)
-        return pickle.loads(data[5:-3])
-
     async def get_responses(self):
         response_futures = []
         for worker in self.workers:
-            response = await worker.read_until(self.end_mark)
+            response_futures.append(worker.read_until(self.end_mark))
+        
+        responses = await asyncio.gather(*response_futures)
+        results = []
+        for response in responses:
             self.check_response(response)
-            response_futures.append(response)
-        return response_futures
+            results.append(response)
+        return results
 
 async def register_worker():
     if args.localhost:
