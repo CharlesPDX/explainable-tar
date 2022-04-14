@@ -11,3 +11,5 @@ sentence-transformers
 gensim
 keepsake
 matplotlib
+fabric
+python-dotenv

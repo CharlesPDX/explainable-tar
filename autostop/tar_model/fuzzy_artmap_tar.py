@@ -134,7 +134,7 @@ async def fuzzy_artmap_method(data_name, topic_set, topic_id,
                 trace_back_string = get_traceback_string(e)
                 model_path = ranker.save_model(param_group_name)
                 experiment.checkpoint(path=os.path.relpath(model_path), primary_metric=(None, None), metrics={"run_group": param_group_name, "metric_type": MetricType.model.name, "step": t})
-                experiment.checkpoint(path=os.path.relpath(tar_run_file), primary_metric=(None, None), metrics={"run_group": param_group_name, "metric_type": MetricType.error.name, "step": t, "error": e, "traceback": trace_back_string})
+                experiment.checkpoint(path=os.path.relpath(tar_run_file), primary_metric=(None, None), metrics={"run_group": param_group_name, "metric_type": MetricType.error.name, "step": t, "error": repr(e), "traceback": trace_back_string})
                 LOGGER.error(f"Error {e} - {trace_back_string} getting predictions\nresults so far saved to {tar_run_file}, model state saved to {model_path}")
                 raise
             
@@ -192,7 +192,7 @@ async def fuzzy_artmap_method(data_name, topic_set, topic_id,
                     tar_run_file = write_results()
                     model_path = ranker.save_model(param_group_name)
                     experiment.checkpoint(path=os.path.relpath(model_path), primary_metric=(None, None), metrics={"run_group": param_group_name, "metric_type": MetricType.model.name, "step": t})
-                    experiment.checkpoint(path=os.path.relpath(tar_run_file), primary_metric=(None, None), metrics={"run_group": param_group_name, "metric_type": MetricType.error.name, "step": t, "error": e, "traceback": trace_back_string})
+                    experiment.checkpoint(path=os.path.relpath(tar_run_file), primary_metric=(None, None), metrics={"run_group": param_group_name, "metric_type": MetricType.error.name, "step": t, "error": repr(e), "traceback": trace_back_string})
                     LOGGER.error(f"Error {e} - {trace_back_string} training on updated docs\nresults so far saved to {tar_run_file}, model state saved to {model_path}")
                     raise
                 LOGGER.info(f"Assessed document training complete - {len(selected_dids):,} documents")
@@ -217,7 +217,14 @@ async def fuzzy_artmap_method(data_name, topic_set, topic_id,
 
     elapsed_run_time = stop_time-start_time
     final_metrics = eval(tar_run_file, qrel_file)
-    experiment.checkpoint(path=os.path.relpath(tar_run_file), primary_metric=(None, None), metrics={"run_group": param_group_name, "metric_type": MetricType.final.name, "calculated_metrics": final_metrics, "elapsed_time": str(elapsed_run_time), "elapsed_seconds": elapsed_run_time.total_seconds(), "nodes": ranker.model.weight_ab.shape[0]})
+    experiment.checkpoint(path=os.path.relpath(tar_run_file), 
+                          primary_metric=(None, None), 
+                          metrics={"run_group": param_group_name, 
+                                   "metric_type": MetricType.final.name, 
+                                   "calculated_metrics": final_metrics, 
+                                   "elapsed_time": str(elapsed_run_time), 
+                                   "elapsed_seconds": elapsed_run_time.total_seconds(), 
+                                   "nodes": ranker.model.weight_ab.shape[0]})
 
     LOGGER.info(f'TAR is finished. Elapsed: {elapsed_run_time}')
     return

@@ -1,0 +1,54 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+
+        {
+            "name": "Python: fuzzy_artmap_tar",
+            "type": "python",
+            "request": "launch",
+            "program": "~/auto-stop-tar/autostop/tar_model/fuzzy_artmap_tar.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": ["-p", "params.json"]
+        },
+        {
+            "name": "Python: fuzzy_artmap_tar worker",
+            "type": "python",
+            "request": "launch",
+            "program": "~/auto-stop-tar/autostop/tar_framework/fuzzy_artmap_distributed_gpu.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": ["-r", "localhost:8786", "-l", "-v"],
+            "env": {"PYTHONPATH": "/home/ccourc/auto-stop-tar/autostop/tar_framework:/home/ccourc/auto-stop-tar/autostop/:/home/ccourc/auto-stop-tar/"}
+        },
+        {
+            "name": "Python: Current File",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "Python: Cluster Manager",
+            "type": "python",
+            "request": "launch",
+            "program": "./cluster_manager.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": ["-p", "~/auto-stop-tar/autostop/tar_model/params.json", "-i", "test_run", "-w", "8", "-t", "-update"]
+        },
+        {
+            "name": "Python: Connect - Cluster Manager",
+            "type": "python",
+            "request": "launch",
+            "program": "./cluster_manager.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": ["-p", "~/auto-stop-tar/autostop/tar_model/params.json", "-i", "test_run", "-c", "-t", "--update"]
+        }
+    ]
+}

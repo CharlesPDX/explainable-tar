@@ -1,5 +1,5 @@
 images/
-
+.env*
 # auto-stop-tar results
 ret/
 
