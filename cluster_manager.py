@@ -99,11 +99,12 @@ def start_workers(ec2_client):
         worker_group.run(f"tmux new -d -s {worker_tmux_session}")
         worker_group.run(f"tmux send-keys -t {worker_tmux_session}:0 'cd auto-stop-tar/' ENTER")
         if args.update:
+            logger.info("updating source on worker")
             worker_group.run(f"tmux send-keys -t {worker_tmux_session}:0 'git checkout . && git reset && git clean -f && git pull origin fuzzy_artmap' ENTER")
         worker_group.run(f"tmux send-keys -t {worker_tmux_session}:0 'source .venv/bin/activate' ENTER")
         worker_group.run(f"tmux send-keys -t {worker_tmux_session}:0 'export PYTHONPATH=/home/ubuntu/auto-stop-tar/autostop/tar_framework:/home/ubuntu/auto-stop-tar/autostop/:/home/ubuntu/auto-stop-tar/' ENTER")
         worker_group.run(f"tmux send-keys -t {worker_tmux_session}:0 'cd /home/ubuntu/auto-stop-tar/autostop/tar_framework/' ENTER")
-        worker_group.run(f"tmux send-keys -t {worker_tmux_session}:0 'python fuzzy_artmap_distributed_gpu.py -r {leader_instance_private_ip}:8786' ENTER")    
+        worker_group.run(f"tmux send-keys -t {worker_tmux_session}:0 'python fuzzy_artmap_distributed_gpu.py -r {leader_instance_private_ip}:8786 -v' ENTER")    
     logger.info("Worker clients started")
 
 
@@ -167,6 +168,7 @@ def start_leader():
         leader_connection.run(f"tmux new -d -s {leader_tmux_session}")
         leader_connection.run(f"tmux send-keys -t {leader_tmux_session}:0 'cd auto-stop-tar/' ENTER")
         if args.update:
+            logger.info("updating source on leader")
             leader_connection.run(f"tmux send-keys -t {leader_tmux_session}:0 'git checkout . && git reset && git clean -f && git pull origin fuzzy_artmap' ENTER")
         leader_connection.run(f"tmux send-keys -t {leader_tmux_session}:0 'source .venv/bin/activate' ENTER")
         leader_connection.run(f"tmux send-keys -t {leader_tmux_session}:0 'cd autostop' ENTER")
@@ -261,7 +263,7 @@ if __name__ == "__main__":
     arg_parser.add_argument("-u", "--update", help="update leader and workers to latest code from git repo", default=False, type=bool, action=BooleanOptionalAction)
     args = arg_parser.parse_args()
     
-    logger.debug(f"starting with args: {args}")
+    logger.info(f"starting with args: {args}")
     if args.workers:
         max_worker_count = args.workers
         min_worker_count = args.workers

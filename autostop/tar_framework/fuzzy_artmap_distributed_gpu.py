@@ -258,6 +258,7 @@ class FuzzyArtMapGpuWorker:
             1: FuzzyArtMapGpuWorker.complement_encode(torch.tensor([[1]], dtype=torch.float)),
         }
         self.A_and_w = torch.empty(self.weight_a.shape, device=self.device, dtype=torch.float)
+        logger.info(f"f1_size: {f1_size}, f2_size:{f2_size}")
 
     def _resonance_search(self, input_vector: torch.tensor, already_reset_nodes: List[int], rho_a: float):
         resonant_a = False
@@ -494,6 +495,7 @@ class FuzzyArtmapWorkerServer(TCPServer):
             self.worker_index = struct.unpack("I", data[5:9])[0]
             logger.info(f"worker_id: {self.worker_index}")
             init_params = pickle.loads(data[9:])
+            
             self.model.init(*init_params)
             await stream.write(self.end_mark)
             logger.info("init completed")

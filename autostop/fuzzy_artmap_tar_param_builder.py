@@ -20,7 +20,8 @@ def make_fuzzy_artmap_params(vigilance, number_of_mapping_nodes, model_type, max
     fuzzy_artmap_params ={"rho_a_bar": vigilance, "number_of_mapping_nodes": number_of_mapping_nodes, "model_type": model_type, "max_nodes": max_nodes}
     return fuzzy_artmap_params
 
-def build_experiments(model_name, corpus_name, topics, vectorizer_types, run_notes = None, run_group = None):
+def build_experiments(fuzzy_artmap_params, corpus_name, topics, vectorizer_types, run_notes = None, run_group = None):
+    model_name = fuzzy_artmap_params["model_type"]
     build_timestamp = datetime.now().isoformat().replace("-", "_")
     run_grouping = ""
     if run_group:
@@ -29,18 +30,46 @@ def build_experiments(model_name, corpus_name, topics, vectorizer_types, run_not
     for vectorizer_type in vectorizer_types:
         for topic in topics:
             experiment_name = f"{run_grouping}{model_name}-{corpus_name}-{topic}-{vectorizer_type.name}-{build_timestamp}"
-            built_experiments[experiment_name] = {"corpus_params": {"corpus_name": corpus_name, "collection_name": corpus_name, "topic_id": topic, "topic_set": topic}, "vectorizer_params": None, "vectorizer_type": vectorizer_type, "run_notes": run_notes}
+            built_experiments[experiment_name] = {"corpus_params": {"corpus_name": corpus_name, "collection_name": corpus_name, "topic_id": topic, "topic_set": topic}, 
+                                                  "vectorizer_params": None, 
+                                                  "vectorizer_type": vectorizer_type, 
+                                                  "run_notes": run_notes,
+                                                  "fuzzy_artmap_params": fuzzy_artmap_params}
 
     return built_experiments
 
-fuzzy_artmap_params = make_fuzzy_artmap_params(0.95, 50, "famdg")
-fuzzy_artmap_params["scheduler_address"] = "localhost:8786"
+def build_experiment_for_corpus_and_topics(corpus_and_topics, fuzzy_artmap_params, vectorizer_types, experiments, run_notes):
+    for corpus, topics in corpus_and_topics.items():
+        experiments.update(build_experiments(fuzzy_artmap_params, corpus, topics, vectorizer_types, run_notes))
 
-experiments = build_experiments(fuzzy_artmap_params["model_type"], "20newsgroups", ["comp.sys.ibm.pc.hardware", "sci.med", "misc.forsale"], [VectorizerType.tf_idf, VectorizerType.glove, VectorizerType.sbert, VectorizerType.word2vec], "perf-test run")
-experiments.update(build_experiments(fuzzy_artmap_params["model_type"], "reuters21578", ["earn", "money-fx", "crude"], [VectorizerType.tf_idf, VectorizerType.glove, VectorizerType.sbert, VectorizerType.word2vec], "perf-test run"))
+default_fuzzy_artmap_params = make_fuzzy_artmap_params(0.95, 50, "famdg")
+default_fuzzy_artmap_params["scheduler_address"] = "localhost:8786"
+default_vectorizer_types = [VectorizerType.tf_idf, VectorizerType.glove]
+
+word2vec_fuzzy_artmap_params = make_fuzzy_artmap_params(0.95, 1200, "famdg")
+word2vec_fuzzy_artmap_params["scheduler_address"] = "localhost:8786"
+word2vec_vectorizer_types = [VectorizerType.word2vec]
+
+sbert_fuzzy_artmap_params = make_fuzzy_artmap_params(0.95, 6200, "famdg")
+sbert_fuzzy_artmap_params["scheduler_address"] = "localhost:8786"
+sbert_vectorizer_types = [VectorizerType.sbert]
+
+# experiments = build_experiments(fuzzy_artmap_params["model_type"], "20newsgroups", ["alt.atheism.short"], [VectorizerType.tf_idf], "vectorized inference tests")
+# experiments[list(experiments.keys())[0]]["corpus_params"]["corpus_name"] = "alt.atheism.short"
+# experiments = build_experiments(fuzzy_artmap_params["model_type"], "reuters21578", ["earn"], [VectorizerType.tf_idf, VectorizerType.glove], "perf-test run")
+
+corpus_and_topics ={
+    "20newsgroups": ["comp.sys.ibm.pc.hardware", "sci.med", "misc.forsale"],
+    "reuters21578": ["earn", "money-fx", "crude"]
+}
+experiments = {}
+run_notes = ""
+build_experiment_for_corpus_and_topics(corpus_and_topics, default_fuzzy_artmap_params, default_vectorizer_types, experiments, "AWS customized F2 size")
+build_experiment_for_corpus_and_topics(corpus_and_topics, word2vec_fuzzy_artmap_params, word2vec_vectorizer_types, experiments, "AWS customized F2 size")
+build_experiment_for_corpus_and_topics(corpus_and_topics, sbert_fuzzy_artmap_params, sbert_vectorizer_types, experiments, "AWS customized F2 size")
 
 destination_path = os.path.join(os.path.dirname(__file__), "tar_model")
 params_file_name = "params.json"
 params_file_location = os.path.join(destination_path, params_file_name)
 with open(params_file_location, "w") as params_file:
-    json.dump({"fuzzy_artmap_params": fuzzy_artmap_params, "experiments": experiments}, params_file, indent=4, cls=EnumEncoder)
+    json.dump({"experiments": experiments}, params_file, indent=4, cls=EnumEncoder)

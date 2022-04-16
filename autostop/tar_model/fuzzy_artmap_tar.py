@@ -264,14 +264,13 @@ if __name__ == '__main__':
     with open(params_file_location) as params_file:
         params = json.load(params_file, object_hook=as_enum)
         experiments = params["experiments"]
-        fuzzy_artmap_params = params["fuzzy_artmap_params"]
-
 
     run_start_time = datetime.now()
     number_of_experiments = len(experiments)
     LOGGER.info(f"Running {number_of_experiments} experiments")
     experiment_counter = 0
     for param_group_name, experiment_params in experiments.items():
+        fuzzy_artmap_params = experiment_params["fuzzy_artmap_params"]
         experiment_counter += 1
         LOGGER.info(f"starting experiment: {param_group_name} - ({experiment_counter}/{number_of_experiments})")
         corpus_params = make_file_params(**experiment_params["corpus_params"])
