@@ -254,6 +254,7 @@ def cleanup_cluster(terminate_workers=False):
 
 
 if __name__ == "__main__":
+    # "args": ["-p", "~/auto-stop-tar/autostop/tar_model/params.json", "-i", "test_run", "-w", "4", "-t", "--update"]
     arg_parser = ArgumentParser()
     arg_parser.add_argument("-p", "--params", help="params file location", required=True)
     arg_parser.add_argument("-i", "--id", help="id to tag cluster", required=True)

@@ -32,8 +32,9 @@ import tornado.ioloop
 # TODO: Add option to use slow recode or not
 # TODO: Add param for beta_a to use if using slow recode
 class FuzzyArtmapGpuDistributed:
-    def __init__(self, f1_size: int = 10, f2_size: int = 10, number_of_categories: int = 2, rho_a_bar = 0, scheduler_address=None, max_nodes = None, use_cuda_if_available = False):
+    def __init__(self, f1_size: int = 10, f2_size: int = 10, number_of_categories: int = 2, rho_a_bar = 0, scheduler_address=None, max_nodes = None, use_cuda_if_available = False, committed_beta = 0.75):
         self.rho_a_bar = rho_a_bar  # Baseline vigilance for ARTa, in range [0,1]
+        self.committed_beta = committed_beta
         self.f2_size = f2_size
         self.f1_size = f1_size
         self.number_of_categories = number_of_categories
@@ -49,7 +50,8 @@ class FuzzyArtmapGpuDistributed:
         logger.info("Getting workers")
         await self.client.get_workers()
         logger.info(f"Initializing {len(self.client.workers)} workers")
-        params = [self.f1_size, self.f2_size, self.number_of_categories, self.rho_a_bar, self.max_nodes, self.use_cuda_if_available]
+        params = [self.f1_size, self.f2_size, self.number_of_categories, self.rho_a_bar, self.max_nodes, self.use_cuda_if_available, self.committed_beta]
+        logger.info(f"committed beta = {self.committed_beta}")
         await self.client.init_workers(params)
         logger.info("Workers initialized")
     
@@ -81,9 +83,11 @@ class FuzzyArtmapGpuDistributed:
 
 
 class LocalFuzzyArtMapGpu:
-    def __init__(self, f1_size: int = 10, f2_size: int = 10, number_of_categories: int = 2, rho_a_bar = 0, max_nodes = None, use_cuda_if_available = False):
+    def __init__(self, f1_size: int = 10, f2_size: int = 10, number_of_categories: int = 2, rho_a_bar = 0, max_nodes = None, use_cuda_if_available = False, committed_beta = 0.75):
         self.alpha = 0.001  # "Choice" parameter > 0. Set small for the conservative limit (Fuzzy AM paper, Sect.3)
         self.beta = 1  # Learning rate. Set to 1 for fast learning
+        self.committed_beta = committed_beta
+        logger.info(f"committed beta = {self.committed_beta}")
         self.beta_ab = 1 #ab learning rate
         self.rho_a_bar = rho_a_bar  # Baseline vigilance for ARTa, in range [0,1]
         
@@ -141,7 +145,7 @@ class LocalFuzzyArtMapGpu:
                     self.weight_ab = torch.vstack((self.weight_ab, torch.ones((self.node_increase_step, self.weight_ab.shape[1]), device=self.device, dtype=torch.float)))
                     self.number_of_increases += 1
                     # Give the new F2a node a w_ab entry, this new node should win
-                else:                   
+                else:
                     self.rho_ab = 0
                     self.beta_ab = 0.75
                     self.rho_a_bar = 0
@@ -233,7 +237,7 @@ class LocalFuzzyArtMapGpu:
 
         self.updated_nodes.add(J)
         if J in self.committed_nodes:
-            beta = 0.75
+            beta = self.committed_beta
         else:
             beta = self.beta
 
@@ -276,6 +280,7 @@ class FuzzyArtMapGpuWorker:
         self.number_of_increases = 0
 
         self.beta = 1  # Learning rate. Set to 1 for fast learning
+        self.committed_beta = 0.75
         self.beta_ab = 1 #ab learning rate
         
         
@@ -289,8 +294,9 @@ class FuzzyArtMapGpuWorker:
         self.A_and_w = None
         self.use_vector = use_vector
 
-    def init(self, f1_size: int = 10, f2_size: int = 10, number_of_categories: int = 2, rho_a_bar = 0, max_nodes = None, use_cuda_if_available = False):
+    def init(self, f1_size: int = 10, f2_size: int = 10, number_of_categories: int = 2, rho_a_bar = 0, max_nodes = None, use_cuda_if_available = False, committed_beta = 0.75):
         self.rho_a_bar = rho_a_bar  # Baseline vigilance for ARTa, in range [0,1]
+        self.committed_beta = committed_beta
         self.max_nodes = max_nodes
         if use_cuda_if_available and torch.cuda.is_available():
             self.device = torch.device("cuda")
@@ -307,6 +313,7 @@ class FuzzyArtMapGpuWorker:
         }
         self.A_and_w = torch.empty(self.weight_a.shape, device=self.device, dtype=torch.float)
         logger.info(f"f1_size: {f1_size}, f2_size:{f2_size}")
+        logger.info(f"committed beta = {self.committed_beta}")
         self.profiler = cProfile.Profile()
 
     def _resonance_search(self, input_vector: torch.tensor, already_reset_nodes: List[int], rho_a: float):

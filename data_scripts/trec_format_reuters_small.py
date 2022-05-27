@@ -19,7 +19,7 @@ def get_text_corpus(full_path):
         with open(file, 'rb') as corpus_file:
             documents.update(parser.parse(corpus_file))
     
-    return {document_id: document for document_id, document in documents.items() if len(document["body"]) > 0}
+    return {document_id: document for document_id, document in documents.items()}
 
 def get_categories(corpus_location):
     with open(os.path.join(corpus_location, "all-topics-strings.lc.txt")) as category_file:
@@ -84,7 +84,7 @@ if __name__ == "__main__":
     reuters_small_corpus = "reuters21578"
     full_reuters_small_path = os.path.join(corpora_root_path, reuters_small_corpus)
 
-    target_location = "./data/reuters21578"
+    target_location = os.path.abspath("./data/reuters21578")
     
     text_corpus = get_text_corpus(full_reuters_small_path)
     make_topics(target_location, full_reuters_small_path)

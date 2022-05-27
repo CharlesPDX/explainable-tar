@@ -108,7 +108,7 @@ class Ranker(object):
     """
     Manager the ranking module of the TAR framework.
     """
-    def __init__(self, model_type='lr', min_df=2, C=1.0, random_state=0, rho_a_bar=0.95, number_of_mapping_nodes=36, scheduler_address=None, max_nodes = None):
+    def __init__(self, model_type='lr', min_df=2, C=1.0, random_state=0, rho_a_bar=0.95, number_of_mapping_nodes=36, scheduler_address=None, max_nodes = None, committed_beta = 0.75):
         self.fam_models = ['fam', 'famg', 'famd', 'famdg']
         self.model_type = model_type
         self.random_state = random_state
@@ -118,6 +118,7 @@ class Ranker(object):
         self.name2features = {}
         self.rho_a_bar = rho_a_bar
         self.number_of_mapping_nodes = number_of_mapping_nodes
+        self.committed_beta = committed_beta
         self.glove_model = None
         self.word2vec_model = None
         self.missing_tokens = []
@@ -178,6 +179,10 @@ class Ranker(object):
             def tfidf_vectorize():
                 tfidf_vectorizer = TfidfVectorizer(**vectorizer_params)
                 tfidf_vectorizer.fit(corpus_texts)
+                pickled_vectorizer_file_name = f"vec_{vectorizer_type.name}_{Ranker._dict_hash(vectorizer_params)}_{corpus_name}.pkl"
+                pickled_vectorizer = os.path.join(PARENT_DIR, 'data', 'pickels', pickled_vectorizer_file_name)
+                with open(pickled_vectorizer, 'wb') as pickled_vectorizer_file:
+                    pickle.dump(tfidf_vectorizer, pickled_vectorizer_file, protocol=pickle.HIGHEST_PROTOCOL)
                 return tfidf_vectorizer.transform(texts)
             vectorizer = tfidf_vectorize
         elif vectorizer_type.name == VectorizerType.glove.name:
@@ -194,12 +199,15 @@ class Ranker(object):
 
         for did, feature in zip(dids, features):
             if vectorizer_type == VectorizerType.glove or vectorizer_type == VectorizerType.sbert or VectorizerType.word2vec:
-                feature_min = feature.min()
-                assert feature_min >= 0, "Negative feature value encountered"
-                assert feature_min <= 1, "Feature min greater than one"
-                feature_max = feature.max()
-                assert feature_max >= 0, "Negative feature value encountered"
-                assert feature_max <= 1, "Feature max greater than one"
+                try:
+                    feature_min = feature.min()
+                    assert feature_min >= 0, "Negative feature value encountered"
+                    assert feature_min <= 1, "Feature min greater than one"
+                    feature_max = feature.max()
+                    assert feature_max >= 0, "Negative feature value encountered"
+                    assert feature_max <= 1, "Feature max greater than one"
+                except Exception as e:                    
+                    raise e
             if len(feature.shape) == 1:
                 self.did2feature[did] = feature[:, np.newaxis]
             else:
@@ -220,7 +228,7 @@ class Ranker(object):
         else:
             model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
         scalar = MinMaxScaler(feature_range=(0,1), copy=False)
-        features =  model.encode(texts, convert_to_numpy=True)
+        features = model.encode(texts, convert_to_numpy=True)
         scalar.fit_transform(features)
         np.clip(features, 0.0, 1.0, out=features)
         return csr_matrix(features)
@@ -231,6 +239,8 @@ class Ranker(object):
         
         vectorized_documents = np.zeros((len(texts), 300))
         for text_index, text in enumerate(texts):
+            if text == ' ':
+                continue
             preprocessed_tokens = preprocess_without_stemming(text)
             self.missing_tokens.extend([token for token in preprocessed_tokens if token not in self.word2vec_model])
             vectorized_tokens = np.array([self.word2vec_model[token] for token in preprocessed_tokens if token in self.word2vec_model])
@@ -246,11 +256,19 @@ class Ranker(object):
         if not self.glove_model:
             self._load_glove_model(os.path.join(os.getcwd(), 'autostop/tar_framework/glove/glove.6B.300d.txt'))
 
-        for text in texts:
+        vectorized_documents = np.zeros((len(texts), 300))
+        for text_index, text in enumerate(texts):
+            if text == ' ':
+                continue
             preprocessed_tokens = preprocess_without_stemming(text)
             self.missing_tokens.extend([token for token in preprocessed_tokens if token not in self.glove_model])
             vectorized_tokens = np.array([self.glove_model[token] for token in preprocessed_tokens if token in self.glove_model])
-            yield csr_matrix(vectorized_tokens.mean(axis=0,keepdims=True))
+            vectorized_documents[text_index] = vectorized_tokens.mean(axis=0,keepdims=True)
+        
+        scalar = MinMaxScaler(feature_range=(0,1), copy=False)
+        scalar.fit_transform(vectorized_documents)
+        np.clip(vectorized_documents, 0.0, 1.0, out=vectorized_documents)
+        return csr_matrix(vectorized_documents)
 
 
     def _load_glove_model(self, glove_file_location):
@@ -302,7 +320,7 @@ class Ranker(object):
                 self.model = FuzzyArtmapDistributed(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, scheduler_address=self.scheduler_address)
         elif self.model_type == "famdg":
             if not self.model:
-                self.model = FuzzyArtmapGpuDistributed(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, scheduler_address=self.scheduler_address, max_nodes=self.max_nodes)
+                self.model = FuzzyArtmapGpuDistributed(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, scheduler_address=self.scheduler_address, max_nodes=self.max_nodes, committed_beta=self.committed_beta)
                 await self.model.initialize_workers()
 
         if self.model_type in self.fam_models:
@@ -349,7 +367,7 @@ class Ranker(object):
             self.model = FuzzyArtmapDistributed(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, scheduler_address=self.scheduler_address)
             model = self.model
         elif self.model_type == "famdg" and not self.model:
-            self.model = FuzzyArtmapGpuDistributed(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, scheduler_address=self.scheduler_address, max_nodes=self.max_nodes)
+            self.model = FuzzyArtmapGpuDistributed(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, scheduler_address=self.scheduler_address, max_nodes=self.max_nodes, committed_beta=self.committed_beta)
             model = self.model
             await self.model.initialize_workers()
             await model.fit(features, labels)
