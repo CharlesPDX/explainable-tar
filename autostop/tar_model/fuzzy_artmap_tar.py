@@ -224,7 +224,8 @@ async def fuzzy_artmap_method(data_name, topic_set, topic_id,
                                    "calculated_metrics": final_metrics, 
                                    "elapsed_time": str(elapsed_run_time), 
                                    "elapsed_seconds": elapsed_run_time.total_seconds(), 
-                                   "nodes": ranker.model.weight_ab.shape[0]})
+                                   "nodes": ranker.model.get_number_of_nodes(),
+                                   "number_of_increases": ranker.model.get_number_of_increases()})
 
     LOGGER.info(f'TAR is finished. Elapsed: {elapsed_run_time}. r - {running_true_recall}')
     return

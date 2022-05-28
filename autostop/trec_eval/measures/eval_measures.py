@@ -117,10 +117,14 @@ class CountBasedMeasures(EvalMeasure):
         self.min_req = 0.0
         self.wss_100 = 0.0
         self.wss_95 = 0.0
+        self.re_75 = 0.0
+        self.last_rel_75 = 0.0
+        self.num_rels_75 = round(float(num_rels) * 0.75)
 
         self.outputs ={'num_shown':0, 'num_feedback':0,
                        'rels_found':0, 'last_rel':1,
-                       'wss_100':1, 'wss_95':1}
+                       'wss_100':1, 'wss_95':1,
+                       're_75':1}
         
         #self.outputs ={'num_shown':0, 'num_feedback':0,
         #               'rels_found':0, 'last_rel':1, 'last_rank':1, 'min_req':1,
@@ -147,6 +151,9 @@ class CountBasedMeasures(EvalMeasure):
             if judgment > 0 and judgment < 3:
                 if self.rels_found < self.num_rels_95:
                     self.last_rel_95 = self.last_rank
+                if self.rels_found <= self.num_rels_75:
+                    self.last_rel_75 = self.last_rank
+                
                 self.rels_found = self.rels_found + 1
                 self.last_rel = self.last_rank
 
@@ -167,6 +174,10 @@ class CountBasedMeasures(EvalMeasure):
             self.wss_100 = 0
         if self.rels_found < self.num_rels_95:
             self.wss_95 = 0
+        if self.rels_found < self.num_rels_75:
+            self.re_75 = 0
+        else:
+            self.re_75 = self.last_rel_75
 
 
 

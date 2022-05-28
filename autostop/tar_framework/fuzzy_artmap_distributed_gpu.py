@@ -80,6 +80,15 @@ class FuzzyArtmapGpuDistributed:
     def save_model(self, descriptor):
         # return ""
         return self.training_fuzzy_artmap.save_model(descriptor)
+    
+    def get_number_of_nodes(self):
+        return self.training_fuzzy_artmap.weight_ab.shape[0]
+
+    def get_number_of_increases(self):
+        return self.training_fuzzy_artmap.number_of_increases
+
+    def get_increase_size(self):
+        return self.training_fuzzy_artmap.node_increase_step
 
 
 class LocalFuzzyArtMapGpu:
@@ -114,7 +123,7 @@ class LocalFuzzyArtMapGpu:
         self.classes_ = np.array([1])
         self.updated_nodes = set()
 
-        self.node_increase_step = 5 # number of F2 nodes to add when required
+        self.node_increase_step = 10 # number of F2 nodes to add when required
         self.number_of_increases = 0
         
         self.A_for_each_F2_node = torch.empty(self.weight_a.shape, device=self.device, dtype=torch.float)
@@ -250,11 +259,11 @@ class LocalFuzzyArtMapGpu:
             self.train(FuzzyArtMapGpuWorker.complement_encode(torch.tensor(input_vector.toarray(), dtype=torch.float)), self.class_vectors[class_vectors[document_index]])            
         logger.info(f"updated nodes: {','.join([str(J) for J in self.updated_nodes])}")
         self.updated_nodes.clear()
-        self.number_of_increases = 0
+        # self.number_of_increases = 0
     
     def clear_updated_nodes(self):
         self.updated_nodes.clear()
-        self.number_of_increases = 0
+        # self.number_of_increases = 0
     
     def save_model(self, descriptor):
         model_timestamp = datetime.now().isoformat().replace("-", "_").replace(":", "_").replace(".", "_")
