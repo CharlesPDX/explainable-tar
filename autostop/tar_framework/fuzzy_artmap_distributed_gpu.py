@@ -42,7 +42,7 @@ class FuzzyArtmapGpuDistributed:
         self.max_nodes = max_nodes
         self.use_cuda_if_available = use_cuda_if_available
         self.client = FuzzyArtmapWorkerClient(scheduler_address)
-        self.training_fuzzy_artmap = LocalFuzzyArtMapGpu(self.f1_size, self.f2_size, self.number_of_categories, self.rho_a_bar, max_nodes, use_cuda_if_available)
+        self.training_fuzzy_artmap = LocalFuzzyArtMapGpu(self.f1_size, self.f2_size, self.number_of_categories, self.rho_a_bar, max_nodes, use_cuda_if_available, committed_beta)
         self.weight_ab = self.training_fuzzy_artmap.weight_ab
         # self.weight_ab = torch.empty((1,1))
     
