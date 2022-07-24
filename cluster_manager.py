@@ -18,6 +18,7 @@ subnet_id = getenv("WORKING_SUBNET")
 security_group_ids = [getenv("WORKING_SECURITY_GROUP")]
 key_name = getenv("WORKING_KEY_NAME")
 results_bucket = getenv("WORKING_BUCKET")
+topic_arn = getenv("TOPIC_ARN")
 
 min_worker_count = 1
 max_worker_count = 1
@@ -228,29 +229,52 @@ def start_run(params_file_location: str):
         leader_connection.run(f"source ~/auto-stop-tar/.venv/bin/activate && cd ~/auto-stop-tar/ && python ~/auto-stop-tar/autostop/tar_model/fuzzy_artmap_tar.py -p {params_file_name}")
         run_stop_time = datetime.now()
         run_duration = run_stop_time - run_start_time
-        logger.info(f"run completed\nstarted at {run_start_time}\nended at: {run_stop_time}\nelapsed: {run_duration}")
+        completion_message = f"***complete run completed\nstarted at {run_start_time}\nended at: {run_stop_time}\nelapsed: {run_duration}"
+        logger.info(completion_message)
+        sns_client = boto3.client('sns', region_name="us-west-2")
+        sns_client.publish(TopicArn=topic_arn, Message=completion_message)
         
 
-def cleanup_cluster(terminate_workers=False):
+def save_results(params_path):
+    with Connection(host=leader_instance_dns_name, user=instance_username, connect_kwargs={"key_filename": ssh_key_location}) as leader_connection:
+        params_file_name = path.basename(params_path)
+        run_prefix = ""
+        if "_" in params_file_name:
+            run_prefix = params_file_name.split("_")[0] + "_"
+        run_timestamp = datetime.now().isoformat().replace("-", "_").replace(":","_").replace(".", "_")
+        results_archive_file_name = f"{run_prefix}keepsake_results_{args.id}_{run_timestamp}.tar.gz"
+        s3_upload_command = f"aws s3 cp {results_archive_file_name} s3://{results_bucket}"
+        logger.info("compressing and saving results to S3") 
+        save_results_result = leader_connection.run(f"cd ~/auto-stop-tar/ && tar -czf {results_archive_file_name} ./.keepsake/ && {s3_upload_command}")
+        logger.info(f"Save succeeded and delete keepsake directory? {save_results_result.ok}")
+        
+        if save_results_result.ok:
+            leader_connection.run(f"cd ~/auto-stop-tar/ && rm -rf ./.keepsake/")
+        else:
+            leader_connection.run(f"cd ~/auto-stop-tar/ && mv .keepsake {run_prefix}_keepsake")
+            logger.warning(f"results saved on leader to: ~/auto-stop-tar/{run_prefix}_keepsake")
+        
+        return save_results_result.ok
+
+def cleanup_cluster(terminate_leader=True, terminate_workers=False):
     ec2_client = boto3.client('ec2', region_name=region)
 
-    with Connection(host=leader_instance_dns_name, user=instance_username, connect_kwargs={"key_filename": ssh_key_location}) as leader_connection:
-        run_timestamp = datetime.now().isoformat().replace("-", "_").replace(":","_").replace(".", "_")
-        results_archive_file_name = f"keepsake_results_{args.id}_{run_timestamp}.tar.gz"
-        s3_upload_command = f"aws s3 cp {results_archive_file_name} s3://{results_bucket}"
-        logger.info("compressing and saving results to S3")  # TODO: update base AMI - sudo apt install awscli
-        save_results_result = leader_connection.run(f"cd ~/auto-stop-tar/ && tar -czf {results_archive_file_name} ./.keepsake/ && {s3_upload_command}")
-        logger.info(f"Save succeeded and terminate leader? {save_results_result.ok}")
-    
-    if save_results_result.ok:
-        ec2_client.terminate_instances(InstanceIds=[leader_instance.id])
-    else:
-        ec2_client.stop_instances(InstanceIds=[leader_instance.id])
+    try:
+        logger.info(f"Terminate leader?: {terminate_leader}")
+        if terminate_leader:
+            ec2_client.terminate_instances(InstanceIds=[leader_instance_id])
+        else:
+            ec2_client.stop_instances(InstanceIds=[leader_instance_id])
 
-    if terminate_workers:
-        ec2_client.terminate_instances(InstanceIds=worker_instance_ids)
-    else:
-        ec2_client.stop_instances(InstanceIds=worker_instance_ids)
+        logger.info(f"Terminate workers?: {terminate_workers}")
+        if terminate_workers:
+            ec2_client.terminate_instances(InstanceIds=worker_instance_ids)
+        else:
+            ec2_client.stop_instances(InstanceIds=worker_instance_ids)
+    except Exception as e:
+        logger.error(f"Error stopping or terminating cluster!! {str(e)}")
+        sns_client = boto3.client('sns', region_name="us-west-2")
+        sns_client.publish(TopicArn=topic_arn, Message=f"Error stopping or terminating cluster!! {str(e)}")
 
 
 if __name__ == "__main__":
@@ -268,16 +292,32 @@ if __name__ == "__main__":
     if args.workers:
         max_worker_count = args.workers
         min_worker_count = args.workers
+    try:
+        # prefixes = ["alpha", "beta", "charlie", "delta", "epsilon", "zeta"]
+        # prefixes = ["beta", "charlie", "delta", "epsilon", "zeta"]
+        prefixes = ["alpha", "beta", "gamma", "delta"]
+        terminate_leader = True
+        if args.connect:
+            cluster_tag_filter = {"Name": f"tag:cluster_id", "Values": [args.id]}
+            connect_to_cluster()
+        else:
+            create_cluster()
+        for prefix in prefixes:
+            params_path = f"autostop/tar_model/lemma_{prefix}_params.json"
+            
+            logger.info(f"starting run: {params_path}")
+            start_run(params_path)
+            logger.info(f"run complete: {params_path}")
 
-    if args.connect:
-        cluster_tag_filter = {"Name": f"tag:cluster_id", "Values": [args.id]}
-        connect_to_cluster()
-    else:
-        create_cluster()
-    
-    logger.info("starting run")
-    start_run(args.params)
-    logger.info("run complete")
+            logger.info("saving results")
+            results_saved_successfully = save_results(params_path)
+            terminate_leader = terminate_leader and results_saved_successfully
+            logger.info(f"results saved successfully: {results_saved_successfully} - {params_path}")
 
-    logger.info("cleaning up cluster")
-    cleanup_cluster(args.terminate)
+        logger.info("cleaning up cluster")
+        cleanup_cluster(terminate_leader, args.terminate)
+    except Exception as e:
+        logger.warn(str(e))
+        sns_client = boto3.client('sns', region_name="us-west-2")
+        sns_client.publish(TopicArn=topic_arn, Message=f"error executing run: {str(e)}")
+

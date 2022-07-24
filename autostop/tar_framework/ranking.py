@@ -108,7 +108,7 @@ class Ranker(object):
     """
     Manager the ranking module of the TAR framework.
     """
-    def __init__(self, model_type='lr', min_df=2, C=1.0, random_state=0, rho_a_bar=0.95, number_of_mapping_nodes=36, scheduler_address=None, max_nodes = None, committed_beta = 0.75):
+    def __init__(self, model_type='lr', min_df=2, C=1.0, random_state=0, rho_a_bar=0.95, number_of_mapping_nodes=36, scheduler_address=None, max_nodes = None, committed_beta = 0.75, active_learning_mode = "ranked", batch_size=100):
         self.fam_models = ['fam', 'famg', 'famd', 'famdg']
         self.model_type = model_type
         self.random_state = random_state
@@ -119,6 +119,8 @@ class Ranker(object):
         self.rho_a_bar = rho_a_bar
         self.number_of_mapping_nodes = number_of_mapping_nodes
         self.committed_beta = committed_beta
+        self.active_learning_mode = active_learning_mode
+        self.batch_size = batch_size
         self.glove_model = None
         self.word2vec_model = None
         self.missing_tokens = []
@@ -320,7 +322,7 @@ class Ranker(object):
                 self.model = FuzzyArtmapDistributed(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, scheduler_address=self.scheduler_address)
         elif self.model_type == "famdg":
             if not self.model:
-                self.model = FuzzyArtmapGpuDistributed(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, scheduler_address=self.scheduler_address, max_nodes=self.max_nodes, committed_beta=self.committed_beta)
+                self.model = FuzzyArtmapGpuDistributed(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, scheduler_address=self.scheduler_address, max_nodes=self.max_nodes, committed_beta=self.committed_beta, active_learning_mode=self.active_learning_mode, batch_size=self.batch_size)
                 await self.model.initialize_workers()
 
         if self.model_type in self.fam_models:
@@ -367,7 +369,7 @@ class Ranker(object):
             self.model = FuzzyArtmapDistributed(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, scheduler_address=self.scheduler_address)
             model = self.model
         elif self.model_type == "famdg" and not self.model:
-            self.model = FuzzyArtmapGpuDistributed(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, scheduler_address=self.scheduler_address, max_nodes=self.max_nodes, committed_beta=self.committed_beta)
+            self.model = FuzzyArtmapGpuDistributed(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, scheduler_address=self.scheduler_address, max_nodes=self.max_nodes, committed_beta=self.committed_beta, active_learning_mode=self.active_learning_mode, batch_size=self.batch_size)
             model = self.model
             await self.model.initialize_workers()
             await model.fit(features, labels)

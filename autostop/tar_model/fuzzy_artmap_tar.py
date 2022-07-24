@@ -75,6 +75,13 @@ async def fuzzy_artmap_method(data_name, topic_set, topic_id,
     total_true_r = assessor.get_total_rel_num()
     total_num = assessor.get_total_doc_num()
 
+    # local parameters
+    stopping = False
+    t = 0
+    batch_size = 100
+
+    classifier_params["batch_size"] = batch_size
+
     # preparing document features
     ranker = Ranker(**classifier_params)
     ranker.set_did_2_feature(dids=complete_pseudo_dids, texts=complete_pseudo_texts, corpus_texts=complete_pseudo_texts, vectorizer_type=vectorizer_type, corpus_name=data_name, vectorizer_params=vectorizer_params)
@@ -82,11 +89,6 @@ async def fuzzy_artmap_method(data_name, topic_set, topic_id,
     LOGGER.info("Caching corpus")
     await ranker.cache_corpus_in_model(complete_dids)
     LOGGER.info("Caching complete")
-
-    # local parameters
-    stopping = False
-    t = 0
-    batch_size = 100
         
     # starting the TAR process
     start_time = datetime.now()
@@ -137,12 +139,14 @@ async def fuzzy_artmap_method(data_name, topic_set, topic_id,
                 experiment.checkpoint(path=os.path.relpath(tar_run_file), primary_metric=(None, None), metrics={"run_group": param_group_name, "metric_type": MetricType.error.name, "step": t, "error": repr(e), "traceback": trace_back_string})
                 LOGGER.error(f"Error {e} - {trace_back_string} getting predictions\nresults so far saved to {tar_run_file}, model state saved to {model_path}")
                 raise
-            
-            zipped = sorted(scores, key=itemgetter(0), reverse=True)
-            if len(zipped) > 0:
-                _, ranked_dids = zip(*zipped)
+            if classifier_params["active_learning_mode"] == "ranked":
+                zipped = sorted(scores, key=itemgetter(0), reverse=True)
+                if len(zipped) > 0:
+                    _, ranked_dids = zip(*zipped)
+                else:
+                    ranked_dids = []
             else:
-                ranked_dids = []
+                _, ranked_dids = zip(*scores)
 
             # cutting off instead of sampling
             selected_dids = assessor.get_top_assessed_dids(ranked_dids, batch_size)

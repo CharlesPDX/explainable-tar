@@ -18,8 +18,8 @@ def get_text_corpus(full_path):
     for file in get_corpus_files(full_path):
         with open(file, 'rb') as corpus_file:
             documents.update(parser.parse(corpus_file))
-    
-    return {document_id: document for document_id, document in documents.items()}
+    return {document_id: document for document_id, document in documents.items() if len(document["body"]) > 0}
+    # return {document_id: document for document_id, document in documents.items()}
 
 def get_categories(corpus_location):
     with open(os.path.join(corpus_location, "all-topics-strings.lc.txt")) as category_file:

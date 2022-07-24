@@ -12,7 +12,7 @@
             "program": "~/auto-stop-tar/autostop/tar_model/fuzzy_artmap_tar.py",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "args": ["-p", "params.json"]
+            "args": ["-p", "debug_run_params.json"]
         },
         {
             "name": "Python: fuzzy_artmap_tar worker",
@@ -39,7 +39,7 @@
             "program": "./cluster_manager.py",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "args": ["-p", "~/auto-stop-tar/autostop/tar_model/params.json", "-i", "test_run", "-w", "8", "-t", "-update"]
+            "args": ["-p", "~/auto-stop-tar/autostop/tar_model/zeta_params.json", "-i", "test_run", "-w", "4", "-t"] //, "--update"]
         },
         {
             "name": "Python: Connect - Cluster Manager",
@@ -48,7 +48,7 @@
             "program": "./cluster_manager.py",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "args": ["-p", "~/auto-stop-tar/autostop/tar_model/params.json", "-i", "test_run", "-c", "-t", "--update"]
+            "args": ["-p", "~/auto-stop-tar/autostop/tar_model/params.json", "-i", "test_run", "-c", "-t"]//, "--update"]
         }
     ]
 }
