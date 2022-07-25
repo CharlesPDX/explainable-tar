@@ -536,7 +536,7 @@ class FuzzyArtMapGpuWorker:
             prediction, membership_degree = self.cached_predict(document_id)
             if prediction[0].item():
                 predictions.append((membership_degree.item(), 0, document_id))
-                if len(predictions) >= self.batch_size:
+                if self.active_learning_mode == "random" and len(predictions) >= self.batch_size:
                     return predictions
         
         return predictions #needs to be in shape (number_of_docs, 1)  

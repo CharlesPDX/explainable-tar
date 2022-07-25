@@ -45,6 +45,9 @@ leader_instance_id = None
 leader_instance_private_ip = None
 can_terminate_leader = False
 
+worker_volume_size = 15
+leader_volume_size = 15
+
 def create_workers(ec2_resource):
     global worker_instance_ids
     worker_instances = ec2_resource.create_instances(
@@ -54,7 +57,7 @@ def create_workers(ec2_resource):
                 "Ebs": {
                     "DeleteOnTermination": True,
                     "Iops": 3000,
-                    "VolumeSize": 15,
+                    "VolumeSize": worker_volume_size,
                     "VolumeType": "gp3",
                     "Throughput": 125
                 }
@@ -121,7 +124,7 @@ def create_leader(ec2_resource, ec2_client):
                 "Ebs": {
                     "DeleteOnTermination": True,
                     "Iops": 3000,
-                    "VolumeSize": 15,
+                    "VolumeSize": leader_volume_size,
                     "VolumeType": "gp3",
                     "Throughput": 125
                 }
@@ -239,8 +242,8 @@ def save_results(params_path):
     with Connection(host=leader_instance_dns_name, user=instance_username, connect_kwargs={"key_filename": ssh_key_location}) as leader_connection:
         params_file_name = path.basename(params_path)
         run_prefix = ""
-        if "_" in params_file_name:
-            run_prefix = params_file_name.split("_")[0] + "_"
+        if "." in params_file_name:
+            run_prefix = params_file_name.split(".")[0] + "_"
         run_timestamp = datetime.now().isoformat().replace("-", "_").replace(":","_").replace(".", "_")
         results_archive_file_name = f"{run_prefix}keepsake_results_{args.id}_{run_timestamp}.tar.gz"
         s3_upload_command = f"aws s3 cp {results_archive_file_name} s3://{results_bucket}"
@@ -295,7 +298,7 @@ if __name__ == "__main__":
     try:
         # prefixes = ["alpha", "beta", "charlie", "delta", "epsilon", "zeta"]
         # prefixes = ["beta", "charlie", "delta", "epsilon", "zeta"]
-        prefixes = ["alpha", "beta", "gamma", "delta"]
+        prefixes = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta"]
         terminate_leader = True
         if args.connect:
             cluster_tag_filter = {"Name": f"tag:cluster_id", "Values": [args.id]}
@@ -303,7 +306,7 @@ if __name__ == "__main__":
         else:
             create_cluster()
         for prefix in prefixes:
-            params_path = f"autostop/tar_model/lemma_{prefix}_params.json"
+            params_path = f"autostop/tar_model/rerun_{prefix}_params.json"
             
             logger.info(f"starting run: {params_path}")
             start_run(params_path)
