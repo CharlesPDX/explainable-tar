@@ -3,8 +3,8 @@
 # "Fuzzy ARTMAP: A Neural Network Architecture for Incremental Supervised Learning of Analog Multidimensional Maps"
 # IEEE Transactions on Neural Networks, Vol. 3, No. 5, pp. 698-713.
 
-import cProfile
-import pstats
+# import cProfile
+# import pstats
 
 import gc
 import asyncio
@@ -19,6 +19,11 @@ from datetime import datetime
 import logging
 logging.basicConfig(level = logging.INFO, format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+file_logging_handler = logging.FileHandler('fuzzy_artmap_gpu_distributed.log')
+file_logging_format = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_logging_handler.setFormatter(file_logging_format)
+logger.addHandler(file_logging_handler)
 
 
 import numpy as np
@@ -91,6 +96,9 @@ class FuzzyArtmapGpuDistributed:
 
     def get_increase_size(self):
         return self.training_fuzzy_artmap.node_increase_step
+    
+    def get_committed_nodes(self):
+        return ",".join([str(n) for n in self.training_fuzzy_artmap.committed_nodes])
 
 
 class LocalFuzzyArtMapGpu:
@@ -328,7 +336,7 @@ class FuzzyArtMapGpuWorker:
         }
         self.A_and_w = torch.empty(self.weight_a.shape, device=self.device, dtype=torch.float)
         logger.info(f"f1_size: {f1_size}, f2_size:{f2_size}, committed beta = {self.committed_beta}, active learning mode = {self.active_learning_mode}, batch size = {self.batch_size}")
-        self.profiler = cProfile.Profile()
+        # self.profiler = cProfile.Profile()
 
     def _resonance_search(self, input_vector: torch.tensor, already_reset_nodes: List[int], rho_a: float):
         resonant_a = False

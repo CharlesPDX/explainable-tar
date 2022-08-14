@@ -1,3 +1,4 @@
+protobuf==3.20.1
 numpy
 pandas
 pyltr
@@ -13,3 +14,6 @@ keepsake
 matplotlib
 fabric
 python-dotenv
+tornado
+dask
+dask[distributed]

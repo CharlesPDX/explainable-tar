@@ -1,5 +1,5 @@
 # coding=utf-8
-from asyncio.log import logger
+# from asyncio.log import logger
 from datetime import datetime
 # from logging import Logger
 import sys
@@ -19,7 +19,7 @@ import json
 import csv
 # import math
 import random
-import numpy as np
+# import numpy as np
 from operator import itemgetter
 
 import keepsake
@@ -35,6 +35,8 @@ from tar_framework.utils import *
 from trec_eval.tar_eval import main as eval
 
 def get_traceback_string(e: Exception):
+    if e is None:
+        return "Passed exception is none!"
     return ''.join(traceback.format_exception(etype=type(e), value=e, tb=e.__traceback__))
 
 async def fuzzy_artmap_method(data_name, topic_set, topic_id,
@@ -230,7 +232,8 @@ async def fuzzy_artmap_method(data_name, topic_set, topic_id,
                                    "elapsed_seconds": elapsed_run_time.total_seconds(), 
                                    "nodes": ranker.model.get_number_of_nodes(),
                                    "number_of_increases": ranker.model.get_number_of_increases(),
-                                   "increase_size": ranker.model.get_increase_size()})
+                                   "increase_size": ranker.model.get_increase_size(),
+                                   "committed_nodes": ranker.model.get_commited_nodes()})
 
     LOGGER.info(f'TAR is finished. Elapsed: {elapsed_run_time}. r - {running_true_recall}')
     return
@@ -299,7 +302,7 @@ if __name__ == '__main__':
             tornado.ioloop.IOLoop.current().run_sync(main)
         except Exception as e:
             trace_back_string = get_traceback_string(e)
-            LOGGER.error(f"Error {e} - {trace_back_string} running experiment {param_group_name}\ncontinuing to next experiment")
+            LOGGER.error(f"Error <{e}>\ntraceback: {trace_back_string}\nrunning experiment {param_group_name}\ncontinuing to next experiment...")
         # tornado.ioloop.IOLoop.instance().start()
         LOGGER.info(f"experiment complete: {param_group_name}")
         gc.collect()

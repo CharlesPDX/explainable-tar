@@ -1,3 +1,4 @@
+import os
 from os import path, getenv
 from argparse import ArgumentParser, BooleanOptionalAction
 import logging
@@ -7,10 +8,18 @@ from pathlib import Path
 logging.basicConfig(level = logging.INFO, format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+file_logging_handler = logging.FileHandler('cluster_manager.log')
+file_logging_format = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_logging_handler.setFormatter(file_logging_format)
+logger.addHandler(file_logging_handler)
+
+
 import boto3
+import requests
 from fabric import Connection, ThreadingGroup
 from dotenv import load_dotenv
-load_dotenv(dotenv_path=Path(".env_test"))
+settings_file = ".env_dev"
+load_dotenv(dotenv_path=Path(settings_file))
 
 region = getenv("WORKING_REGION")
 availability_zone = getenv("WORKING_AZ")
@@ -30,9 +39,12 @@ worker_dns_names = None
 
 leader_instance_type = "r5a.large"
 leader_tag = "leader"
-leader_tmux_session = "leader"
-leader_runner_tmux_session = "runner"
+leader_tmux_session = "registrar"
+leader_manager_tmux_session = "runner"
+leader_working_tmux_session = "leader"
 leader_instance_role = {"Arn": getenv("WORKING_EC2_INSTANCE_ROLE_ARN")}
+
+sidecar_instance_type= "t3.medium"
 
 base_ami = getenv("WORKING_BASE_AMI")
 dry_run = False
@@ -158,7 +170,7 @@ def create_leader(ec2_resource, ec2_client):
     )[0]
     logger.info(f"Leader {leader_instance.id} created, waiting for instance running")
     # waiter = ec2_client.get_waiter('instance_status_ok')
-    waiter = ec2_client.get_waiter('instance_running')
+    waiter = ec2_client.get_waiter('instance_status_ok')
     waiter.wait(InstanceIds=[leader_instance.id])
     logger.info(f"leader instance running, starting registrar")
     leader_instance_id = leader_instance.id
@@ -274,39 +286,155 @@ def cleanup_cluster(terminate_leader=True, terminate_workers=False):
             ec2_client.terminate_instances(InstanceIds=worker_instance_ids)
         else:
             ec2_client.stop_instances(InstanceIds=worker_instance_ids)
+
+        logger.info("Checking for running as sidecar")
+        try:
+            logger.info("setting token")
+            token_response = requests.put("http://169.254.169.254/latest/api/token", headers={"X-aws-ec2-metadata-token-ttl-seconds": "21600"}, timeout=5.0)
+            logger.info(f"token response: {token_response.status_code} - {token_response.text}")
+            if token_response.status_code != 200:
+                token_response.raise_for_status()
+            token = token_response.text
+            logger.info("getting instance id")
+            instance_response = requests.get("http://169.254.169.254/latest/meta-data/instance-id", headers={"X-aws-ec2-metadata-token": token}, timeout=1.0)
+            logger.info(f"instance repsonse: {instance_response.status_code} - {instance_response.text}")
+            sidecar_instance_id = instance_response.text
+            if terminate_leader:
+                ec2_client.terminate_instances(InstanceIds=[sidecar_instance_id])
+            else:
+                ec2_client.stop_instances(InstanceIds=[sidecar_instance_id])
+        except Exception as e:
+            logger.info(f"Error getting token or instance id: {e}")
     except Exception as e:
         logger.error(f"Error stopping or terminating cluster!! {str(e)}")
         sns_client = boto3.client('sns', region_name="us-west-2")
         sns_client.publish(TopicArn=topic_arn, Message=f"Error stopping or terminating cluster!! {str(e)}")
 
+def bootstrap_sidecar(prefixes):
+    ec2_resource = boto3.resource("ec2", region_name=region)
+    ec2_client = boto3.client('ec2', region_name=region)
+    sidecar_instance = ec2_resource.create_instances(
+    BlockDeviceMappings=[
+        {
+            "DeviceName": "/dev/sda1",
+            "Ebs": {
+                "DeleteOnTermination": True,
+                "Iops": 3000,
+                "VolumeSize": leader_volume_size,
+                "VolumeType": "gp3",
+                "Throughput": 125
+            }
+        }
+    ],
+    CreditSpecification={
+        'CpuCredits': 'standard'
+    },
+    ImageId = base_ami,
+    InstanceType = sidecar_instance_type,
+    MaxCount = 1,
+    MinCount = 1,
+    KeyName=key_name,
+    SecurityGroupIds = security_group_ids,
+    SubnetId = subnet_id,
+    DryRun = dry_run,
+    IamInstanceProfile = leader_instance_role,
+    InstanceInitiatedShutdownBehavior="stop",
+    TagSpecifications=[
+        {
+            "ResourceType": "instance",
+            "Tags": [
+                {
+                    "Key": "cluster_id",
+                    "Value": args.id
+                },
+                {
+                    "Key": "cluster_role",
+                    "Value": "sidecar"
+                }
+            ]
+        }
+    ]
+    )[0]
+    logger.info(f"Sidecar {sidecar_instance.id} created, waiting for instance running")
+    waiter = ec2_client.get_waiter('instance_status_ok')
+    waiter.wait(InstanceIds=[sidecar_instance.id])
+    logger.info(f"sidecar instance running, starting bootstrap")
+    sidecar_dns_name = ec2_client.describe_instances(InstanceIds=[sidecar_instance.id])["Reservations"][0]["Instances"][0]["PublicDnsName"]
+    with Connection(host=sidecar_dns_name, user=instance_username, connect_kwargs={"key_filename": ssh_key_location}) as sidecar_connection:
+        # upload params file to sidecar
+        for prefix in prefixes:
+            params_path = f"autostop/tar_model/zulu_{prefix}_params.json"
+            params_file_name = path.basename(params_path)
+            destination_path = f"auto-stop-tar/autostop/tar_model/{params_file_name}"
+            logger.info(f"Uploading parameter file {params_path} to ~/{destination_path}")
+            sidecar_connection.put(params_path, destination_path)
+
+        # upload cluster manager
+        cluster_manager_path = path.abspath(__file__)
+        cluster_manager_destination = f"auto-stop-tar/cluster_manager.py"
+        logger.info(f"Uploading cluster manager {cluster_manager_path} to ~/{cluster_manager_destination}")
+        sidecar_connection.put(cluster_manager_path, cluster_manager_destination)
+
+        # read & write updated env file
+        env_update_path = f"{os.getcwd()}/{settings_file}_update"
+        env_destination = f"auto-stop-tar/{settings_file}"
+        with open(f"{os.getcwd()}/{settings_file}", mode="r") as env_file, open(env_update_path, mode="w+") as updated_env_file:
+            for line in env_file:
+                if "SSH_KEY" not in line:
+                    updated_env_file.write(line)
+                else:
+                    parts = line.split("=")
+                    ssh_file_name = path.basename(parts[1].rstrip())
+                    ssh_destination = f"/home/ubuntu/auto-stop-tar/{ssh_file_name}"
+                    updated_env_file.write(f"{parts[0]}={ssh_destination}\n")
+                    logger.info(f"Uploading ssh_key {parts[1].rstrip()} to {ssh_destination}")
+                    sidecar_connection.put(parts[1].rstrip(), ssh_destination)
+        
+        logger.info(f"Uploading env file {env_update_path} to {env_destination}")
+        sidecar_connection.put(env_update_path, env_destination)
+        logger.info(f"Sidecar prepared!")
 
 if __name__ == "__main__":
     # "args": ["-p", "~/auto-stop-tar/autostop/tar_model/params.json", "-i", "test_run", "-w", "4", "-t", "--update"]
     arg_parser = ArgumentParser()
-    arg_parser.add_argument("-p", "--params", help="params file location", required=True)
     arg_parser.add_argument("-i", "--id", help="id to tag cluster", required=True)
     arg_parser.add_argument("-c", "--connect", help="connect to existing cluster with 'id'", default=False, type=bool, action=BooleanOptionalAction)
     arg_parser.add_argument("-w", "--workers", help="number of workers to run", type=int)
     arg_parser.add_argument("-t", "--terminate", help="flag to terminate worker instances instead of stop", action=BooleanOptionalAction)
     arg_parser.add_argument("-u", "--update", help="update leader and workers to latest code from git repo", default=False, type=bool, action=BooleanOptionalAction)
+    arg_parser.add_argument("-b", "--bootstrap", help="bootstrap cluster manager on the leader", default=False, type=bool, action=BooleanOptionalAction)
     args = arg_parser.parse_args()
     
     logger.info(f"starting with args: {args}")
     if args.workers:
         max_worker_count = args.workers
         min_worker_count = args.workers
+    
+    # prefixes = ["alpha", "beta", "charlie", "delta", "epsilon", "zeta"]
+    # prefixes = ["beta", "charlie", "delta", "epsilon", "zeta"]
+    # prefixes = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta"]
+    prefixes = ["alpha"]
+    
     try:
-        # prefixes = ["alpha", "beta", "charlie", "delta", "epsilon", "zeta"]
-        # prefixes = ["beta", "charlie", "delta", "epsilon", "zeta"]
-        prefixes = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta"]
+        if args.bootstrap:
+            bootstrap_sidecar(prefixes)
+            logger.info("bootstrap complete, exiting")
+            exit()
+    except Exception as e:
+        terminate_leader = False
+        logger.warning(str(e))
+        exit()
+        
+    try:
         terminate_leader = True
         if args.connect:
             cluster_tag_filter = {"Name": f"tag:cluster_id", "Values": [args.id]}
             connect_to_cluster()
         else:
             create_cluster()
+
         for prefix in prefixes:
-            params_path = f"autostop/tar_model/rerun_{prefix}_params.json"
+            params_path = f"autostop/tar_model/zulu_{prefix}_params.json"
             
             logger.info(f"starting run: {params_path}")
             start_run(params_path)
@@ -317,10 +445,11 @@ if __name__ == "__main__":
             terminate_leader = terminate_leader and results_saved_successfully
             logger.info(f"results saved successfully: {results_saved_successfully} - {params_path}")
 
-        logger.info("cleaning up cluster")
-        cleanup_cluster(terminate_leader, args.terminate)
+        logger.info("cleaning up cluster")        
     except Exception as e:
-        logger.warn(str(e))
+        terminate_leader = False
+        logger.warning(str(e))
         sns_client = boto3.client('sns', region_name="us-west-2")
         sns_client.publish(TopicArn=topic_arn, Message=f"error executing run: {str(e)}")
-
+    finally:
+        cleanup_cluster(terminate_leader, args.terminate)

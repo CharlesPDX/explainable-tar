@@ -39,7 +39,7 @@
             "program": "./cluster_manager.py",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "args": ["-p", "~/auto-stop-tar/autostop/tar_model/zeta_params.json", "-i", "test_run", "-w", "4", "-t"] //, "--update"]
+            "args": ["-i", "test_run", "-w", "4", "-t"] //, "--update"]
         },
         {
             "name": "Python: Connect - Cluster Manager",
@@ -48,7 +48,16 @@
             "program": "./cluster_manager.py",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "args": ["-p", "~/auto-stop-tar/autostop/tar_model/params.json", "-i", "test_run", "-c", "-t"]//, "--update"]
+            "args": ["-i", "test_run", "-c", "-t"]//, "--update"]
+        },
+        {
+            "name": "Python: Bootstrap - Cluster Manager",
+            "type": "python",
+            "request": "launch",
+            "program": "./cluster_manager.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": ["-i", "test_run", "-w", "1", "-t", "-b"] //, "--update"]
         }
     ]
 }

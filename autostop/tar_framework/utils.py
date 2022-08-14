@@ -6,6 +6,10 @@ import pandas as pd
 import logging
 logging.basicConfig(level = logging.INFO, format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 LOGGER = logging.getLogger(__name__)
+file_logging_handler = logging.FileHandler('auto_tar.log')
+file_logging_format = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_logging_handler.setFormatter(file_logging_format)
+LOGGER.addHandler(file_logging_handler)
 
 
 PARENT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
