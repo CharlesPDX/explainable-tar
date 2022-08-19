@@ -37,7 +37,10 @@ from trec_eval.tar_eval import main as eval
 def get_traceback_string(e: Exception):
     if e is None:
         return "Passed exception is none!"
-    return ''.join(traceback.format_exception(etype=type(e), value=e, tb=e.__traceback__))
+    if sys.version_info.minor >= 10:
+        return ''.join(traceback.format_exception(e))
+    else:
+        return ''.join(traceback.format_exception(etype=type(e), value=e, tb=e.__traceback__))
 
 async def fuzzy_artmap_method(data_name, topic_set, topic_id,
                 query_file, qrel_file, doc_id_file, doc_text_file,  # data parameters
