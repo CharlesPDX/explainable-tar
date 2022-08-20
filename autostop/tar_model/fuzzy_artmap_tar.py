@@ -161,7 +161,9 @@ async def fuzzy_artmap_method(data_name, topic_set, topic_id,
             sampled_num = assessor.get_assessed_num()
             sampled_percentage = sampled_num/total_num
             running_true_r = assessor.get_assessed_rel_num()
-            running_true_recall = running_true_r / float(total_true_r)
+            running_true_recall = 0
+            if total_true_r != 0:
+                running_true_recall = running_true_r / float(total_true_r)
             ap = calculate_ap(did2label, ranked_dids)
 
             # update parameters
