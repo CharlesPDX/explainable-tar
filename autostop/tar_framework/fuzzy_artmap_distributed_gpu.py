@@ -478,7 +478,10 @@ class FuzzyArtMapGpuWorker:
         ranker = Ranker("famdg")
         ranker.set_did_2_feature(ranker_params[0], None, None, ranker_params[1], ranker_params[2], ranker_params[3])
         corpus = ranker.get_feature_by_did(document_index_mapping.keys())
-        self.corpus = FuzzyArtMapGpuWorker.complement_encode(torch.tensor(corpus.toarray(), device="cpu", dtype=torch.float))
+        index_values = list(sorted(document_index_mapping.values()))
+        first_index = index_values[0]
+        last_index = index_values[-1]
+        self.corpus = FuzzyArtMapGpuWorker.complement_encode(torch.tensor(corpus[first_index:last_index].toarray(), device="cpu", dtype=torch.float))
         
         self.excluded_document_ids = set()
         N = self.weight_a.shape[0]
@@ -687,7 +690,7 @@ class FuzzyArtmapWorkerClient():
         logger.info("cache corpus entered")
         caching_futures = []
         for index, worker in enumerate(self.workers):
-            chunk_document_id_index = {document_id: index for index, document_id in enumerate(document_index_chunks[index])}
+            chunk_document_id_index = {document_id: i for i, document_id in enumerate(document_index_chunks[index])}
             pickled_index = pickle.dumps((ranker_params, chunk_document_id_index))
             index_length = struct.pack("I", len(pickled_index))
             caching_futures.append(worker.write(self.cache_header + index_length + pickled_index + self.end_mark))
