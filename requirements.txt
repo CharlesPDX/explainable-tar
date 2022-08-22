@@ -17,3 +17,4 @@ python-dotenv
 tornado
 dask
 dask[distributed]
+jsonpickle

@@ -32,6 +32,8 @@ from sentence_transformers import SentenceTransformer
 
 import gensim.downloader as gensim_api
 
+import jsonpickle
+
 from fuzzy_artmap import FuzzyArtMap
 from fuzzy_artmap_gpu import FuzzyArtMapGpu
 from fuzzy_artmap_distributed import FuzzyArtmapDistributed
@@ -146,7 +148,8 @@ class Ranker(object):
         dhash = hashlib.md5()
         # We need to sort arguments so {'a': 1, 'b': 2} is
         # the same as {'b': 2, 'a': 1}
-        encoded = json.dumps(dictionary, sort_keys=True).encode()
+        jsonpickle.set_encoder_options('simplejson', encoding='utf8', sort_keys=True)
+        encoded = jsonpickle.encode(dictionary, unpicklable=False).encode('ascii','ignore')
         dhash.update(encoded)
         return dhash.hexdigest()
 
@@ -177,7 +180,7 @@ class Ranker(object):
 
         if vectorizer_type.name == VectorizerType.tf_idf.name:
             if not vectorizer_params:
-                vectorizer_params = {'stop_words': 'english', 'min_df': int(self.min_df)}
+                vectorizer_params = {'stop_words': 'english', 'min_df': int(self.min_df), 'dtype': np.float32}
             def tfidf_vectorize():
                 tfidf_vectorizer = TfidfVectorizer(**vectorizer_params)
                 tfidf_vectorizer.fit(corpus_texts)

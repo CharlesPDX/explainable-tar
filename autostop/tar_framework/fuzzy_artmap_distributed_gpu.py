@@ -476,12 +476,16 @@ class FuzzyArtMapGpuWorker:
         logger.info(f"worker corpus caching {len(document_index_mapping)} documents")
         self.document_index_mapping = document_index_mapping
         ranker = Ranker("famdg")
+        logger.info(f"initializing features")
         ranker.set_did_2_feature(ranker_params[0], None, None, ranker_params[1], ranker_params[2], ranker_params[3])
+        logger.info(f"getting features")
         corpus = ranker.get_feature_by_did(document_index_mapping.keys())
+        logger.info(f"complement encoding")
         self.corpus = FuzzyArtMapGpuWorker.complement_encode(torch.tensor(corpus.toarray(), device="cpu", dtype=torch.float))
         
         self.excluded_document_ids = set()
         N = self.weight_a.shape[0]
+        logger.info(f"initializing S_cache")
         self.S_cache = torch.tensor(self.input_vector_sum, device=self.device, dtype=torch.float).repeat(self.corpus.shape[0], N)
         logger.info("worker corpus caching complete")
 
