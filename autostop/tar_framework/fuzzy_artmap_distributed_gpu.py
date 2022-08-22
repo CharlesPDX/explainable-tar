@@ -478,10 +478,7 @@ class FuzzyArtMapGpuWorker:
         ranker = Ranker("famdg")
         ranker.set_did_2_feature(ranker_params[0], None, None, ranker_params[1], ranker_params[2], ranker_params[3])
         corpus = ranker.get_feature_by_did(document_index_mapping.keys())
-        index_values = list(sorted(document_index_mapping.values()))
-        first_index = index_values[0]
-        last_index = index_values[-1]
-        self.corpus = FuzzyArtMapGpuWorker.complement_encode(torch.tensor(corpus[first_index:last_index].toarray(), device="cpu", dtype=torch.float))
+        self.corpus = FuzzyArtMapGpuWorker.complement_encode(torch.tensor(corpus.toarray(), device="cpu", dtype=torch.float))
         
         self.excluded_document_ids = set()
         N = self.weight_a.shape[0]

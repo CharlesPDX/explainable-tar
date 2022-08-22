@@ -12,7 +12,7 @@
             "program": "~/auto-stop-tar/autostop/tar_model/fuzzy_artmap_tar.py",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "args": ["-p", "debug_run_params.json"]
+            "args": ["-p", "test_reuters_params.json"]
         },
         {
             "name": "Python: fuzzy_artmap_tar worker",
@@ -22,6 +22,16 @@
             "console": "integratedTerminal",
             "justMyCode": true,
             "args": ["-r", "localhost:8786", "-l", "-v"],
+            "env": {"PYTHONPATH": "/home/ccourc/auto-stop-tar/autostop/tar_framework:/home/ccourc/auto-stop-tar/autostop/:/home/ccourc/auto-stop-tar/"}
+        },
+        {
+            "name": "Python: fuzzy_artmap_tar worker 2",
+            "type": "python",
+            "request": "launch",
+            "program": "~/auto-stop-tar/autostop/tar_framework/fuzzy_artmap_distributed_gpu.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": ["-r", "localhost:8786", "-l", "-v", "-p", "48577"],
             "env": {"PYTHONPATH": "/home/ccourc/auto-stop-tar/autostop/tar_framework:/home/ccourc/auto-stop-tar/autostop/:/home/ccourc/auto-stop-tar/"}
         },
         {
