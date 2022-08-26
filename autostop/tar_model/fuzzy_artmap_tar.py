@@ -19,7 +19,7 @@ import json
 import csv
 # import math
 import random
-# import numpy as np
+import numpy as np
 from operator import itemgetter
 
 import keepsake
@@ -254,9 +254,19 @@ def as_enum(d):
     if "__enum__" in d:
         _, member = d["__enum__"].split(".")
         return getattr(VectorizerType, member)
+    elif "__np__" in d:
+        return getattr(np, d["__np__"])
     else:
         return d
 
+class EnumEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, Enum):
+            return {"__enum__": str(obj)}
+        if isinstance(obj, type):
+            return {"__np__":str(obj).split(".")[1].rstrip("'>")}
+
+        return json.JSONEncoder.default(self, obj)
 
 if __name__ == '__main__':
     arg_parser = argparse.ArgumentParser()
@@ -293,7 +303,7 @@ if __name__ == '__main__':
                                             "metric_type": MetricType.init.name, 
                                             "corpus_params": corpus_params, 
                                             "vectorizer_type": experiment_params["vectorizer_type"].name, 
-                                            "vectorizer_params": experiment_params["vectorizer_params"], 
+                                            "vectorizer_params": json.dumps(experiment_params["vectorizer_params"], cls=EnumEncoder), 
                                             "classifier_params": fuzzy_artmap_params, 
                                             "random_state": json.dumps(random.getstate()), 
                                             "run_notes": experiment_params["run_notes"],

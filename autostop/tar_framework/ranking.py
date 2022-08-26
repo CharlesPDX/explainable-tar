@@ -155,32 +155,32 @@ class Ranker(object):
 
     @staticmethod
     def _pickle_or_get_features(vectorizer_type: VectorizerType, corpus_name: str, vectorizer_params: dict, vectorizer: callable):
-            if not vectorizer_params:
-                vectorizer_params = {}
-            pickled_corpus_file_name = f"{vectorizer_type.name}_{Ranker._dict_hash(vectorizer_params)}_{corpus_name}.pkl"
-            pickled_corpus = os.path.join(PARENT_DIR, 'data', 'pickels', pickled_corpus_file_name)
-            try:
-                with open(pickled_corpus, 'rb') as pickled_corpus_file:
-                    stored_data = pickle.load(pickled_corpus_file)
-                    features = stored_data['features']
-            except FileNotFoundError as e:
-                pickels_path = os.path.join(PARENT_DIR, 'data', 'pickels')
-                if not Path(pickels_path).exists():
-                    os.mkdir(pickels_path)
-                LOGGER.info(e)
-                features = vectorizer()
-                if inspect.isgenerator(features):
-                    features = list(features)
-                with open(pickled_corpus, 'wb') as pickled_corpus_file:
-                    pickle.dump({'features': features}, pickled_corpus_file, protocol=pickle.HIGHEST_PROTOCOL)
-            return features
+        if not vectorizer_params:
+            vectorizer_params = {}
+        pickled_corpus_file_name = f"{vectorizer_type.name}_{Ranker._dict_hash(vectorizer_params)}_{corpus_name}.pkl"
+        pickled_corpus = os.path.join(PARENT_DIR, 'data', 'pickels', pickled_corpus_file_name)
+        try:
+            with open(pickled_corpus, 'rb') as pickled_corpus_file:
+                stored_data = pickle.load(pickled_corpus_file)
+                features = stored_data['features']
+        except FileNotFoundError as e:
+            pickels_path = os.path.join(PARENT_DIR, 'data', 'pickels')
+            if not Path(pickels_path).exists():
+                os.mkdir(pickels_path)
+            LOGGER.info(e)
+            features = vectorizer()
+            if inspect.isgenerator(features):
+                features = list(features)
+            with open(pickled_corpus, 'wb') as pickled_corpus_file:
+                pickle.dump({'features': features}, pickled_corpus_file, protocol=pickle.HIGHEST_PROTOCOL)
+        return features
 
     def set_did_2_feature(self, dids, texts, corpus_texts, vectorizer_type: VectorizerType = VectorizerType.tf_idf, corpus_name=None, vectorizer_params=None):        
         self.set_did_2_feature_params = (dids, vectorizer_type, corpus_name, vectorizer_params)
 
         if vectorizer_type.name == VectorizerType.tf_idf.name:
             if not vectorizer_params:
-                vectorizer_params = {'stop_words': 'english', 'min_df': int(self.min_df), 'dtype': np.float32}
+                vectorizer_params = {'stop_words': 'english', 'min_df': int(self.min_df)}
             def tfidf_vectorize():
                 tfidf_vectorizer = TfidfVectorizer(**vectorizer_params)
                 tfidf_vectorizer.fit(corpus_texts)

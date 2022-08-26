@@ -7,6 +7,7 @@
 # import pstats
 
 import gc
+import sys
 import asyncio
 import socket
 import pickle
@@ -586,7 +587,10 @@ class FuzzyArtmapWorkerServer(TCPServer):
                     await self.handle_data(data[:-3], stream)
                     data_buffer.clear()
                 except Exception as e:
-                    traceback_string = ''.join(traceback.format_exception(etype=type(e), value=e, tb=e.__traceback__))
+                    if sys.version_info.minor >= 10:
+                        traceback_string = ''.join(traceback.format_exception(e))
+                    else:
+                        traceback_string = ''.join(traceback.format_exception(etype=type(e), value=e, tb=e.__traceback__))
                     logger.info(f"error running {chr(data[0])} operation - {traceback_string}")
                     error_response = "e".encode("utf-8")
                     worker_id = struct.pack("I", self.worker_index)
