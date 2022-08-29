@@ -10,10 +10,18 @@ import random
 import sys
 import os
 sys.path.insert(0, os.path.join(os.getcwd(), 'autostop'))
+sys.path.insert(0, os.path.join(os.getcwd(), 'autostop/trec_eval/measures'))
+sys.path.insert(0, os.path.join(os.getcwd(), 'autostop/trec_eval/seeker'))
+sys.path.insert(0, os.path.join(os.getcwd(), 'autostop/tar_framework'))
 print(sys.path)
 import csv
 import math
 from datetime import datetime
+
+import traceback
+import gc
+import subprocess
+import argparse
 
 import keepsake
 import numpy as np
@@ -26,6 +34,14 @@ from tar_framework.utils import *
 
 from trec_eval.tar_eval import main as eval
 
+def get_traceback_string(e: Exception):
+    if e is None:
+        return "Passed exception is none!"
+    if sys.version_info.minor >= 10:
+        return ''.join(traceback.format_exception(e))
+    else:
+        return ''.join(traceback.format_exception(etype=type(e), value=e, tb=e.__traceback__))
+
 
 def autotar_method(data_name, topic_set, topic_id,
                    query_file, qrel_file, doc_id_file, doc_text_file,  # data parameters
@@ -33,6 +49,7 @@ def autotar_method(data_name, topic_set, topic_id,
                    ranker_tfidf_corpus_files=[], classifier='lr', min_df=2, C=1.0,  # ranker parameters
                    random_state=0,
                 vectorizer_params=None,
+                vectorizer_type=VectorizerType.tf_idf,
                 classifier_params=None,
                 **kwargs):
     """
@@ -105,7 +122,7 @@ def autotar_method(data_name, topic_set, topic_id,
 
             train_dids, train_labels = assessor.get_training_data(temp_doc_num)
             train_features = ranker.get_feature_by_did(train_dids)
-            ranker.train(train_features, train_labels)
+            ranker.train_sync(train_features, train_labels)
 
             test_features = ranker.get_features_by_name('complete_dids')
             scores = ranker.predict(test_features)
@@ -161,45 +178,86 @@ def autotar_method(data_name, topic_set, topic_id,
     
     elapsed_run_time = stop_time-start_time
     final_metrics = eval(tar_run_file, qrel_file)
-    experiment.checkpoint(path=os.path.relpath(tar_run_file), primary_metric=(None, None), metrics={"run_group": param_group_name, "metric_type": MetricType.final.name, "calculated_metrics": final_metrics, "elapsed_time": str(elapsed_run_time), "elapsed_seconds": elapsed_run_time.total_seconds()})
-    LOGGER.info(f'TAR is finished. Elapsed: {elapsed_run_time}')
+    experiment.checkpoint(path=os.path.relpath(tar_run_file), 
+                          primary_metric=(None, None), 
+                          metrics={"run_group": param_group_name, 
+                                   "metric_type": MetricType.final.name, 
+                                   "calculated_metrics": final_metrics, 
+                                   "elapsed_time": str(elapsed_run_time), 
+                                   "elapsed_seconds": elapsed_run_time.total_seconds()})
+
+    LOGGER.info(f'TAR is finished. Elapsed: {elapsed_run_time}. r - {running_true_recall}')
     return
 
+
+def get_git_revision_hash() -> str:
+    return subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode('ascii').strip()
+
+def as_enum(d):
+    if "__enum__" in d:
+        _, member = d["__enum__"].split(".")
+        return getattr(VectorizerType, member)
+    elif "__np__" in d:
+        return getattr(np, d["__np__"])
+    else:
+        return d
+
+class EnumEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, Enum):
+            return {"__enum__": str(obj)}
+        if isinstance(obj, type):
+            return {"__np__":str(obj).split(".")[1].rstrip("'>")}
+
+        return json.JSONEncoder.default(self, obj)
+
 if __name__ == '__main__':
-    # data_name = 'clef2017'
-    # topic_id = 'CD008081'
-    # topic_set = 'test'
-    # data_name = '20newsgroups'
-    # topic_id = 'alt.atheism'
-    # topic_set = 'alt.atheism'
-    # corpus_name = 'reuters21578'
-    # collection_name = 'reuters21578'
-    # topic_id = 'grain'
-    # topic_set = 'grain'
-    # topic_id = 'zinc'
-    # topic_set = 'zinc'
-    # query_file = os.path.join(PARENT_DIR, 'data', data_name, 'topics', topic_id)
-    # qrel_file = os.path.join(PARENT_DIR, 'data', data_name, 'qrels', topic_id)
-    # doc_id_file = os.path.join(PARENT_DIR, 'data', data_name, 'docids', topic_id)
-    # doc_text_file = os.path.join(PARENT_DIR, 'data', data_name, 'doctexts', topic_id)
-    # autotar_method(data_name, topic_id, topic_set,query_file, qrel_file, doc_id_file, doc_text_file)
-    tf_idf_params = make_tf_idf_vectorizer_params(0.001, 0.9, 'english')
-    vectorizer_type = VectorizerType.tf_idf
-    x = tf_idf_params
-    # experiments = {
-    #     "autotar-small-reuters-default-tf-idf-grain": {"corpus_params": {"corpus_name": "reuters21578", "collection_name": "reuters21578", "topic_id": "grain", "topic_set": "grain"}}, # grain - 3.01%
-    #     "autotar-small-reuters-default-tf-idf-zinc": {"corpus_params": {"corpus_name": "reuters21578", "collection_name": "reuters21578", "topic_id": "zinc", "topic_set": "zinc"}}, # zinc - 0.23%
-    #     "autotar-small-reuters-default-tf-idf-platinum": {"corpus_params": {"corpus_name": "reuters21578", "collection_name": "reuters21578", "topic_id": "platinum", "topic_set": "platinum"}} # platinum - 0.06%
-    # }
-    experiments = {
-        "autotar-small-reuters-small-tf-idf-grain": {"corpus_params": {"corpus_name": "reuters21578", "collection_name": "reuters21578", "topic_id": "grain", "topic_set": "grain"}, "vectorizer_params": x}, # grain - 3.01%
-        "autotar-small-reuters-small-tf-idf-zinc": {"corpus_params": {"corpus_name": "reuters21578", "collection_name": "reuters21578", "topic_id": "zinc", "topic_set": "zinc"}, "vectorizer_params": x}, # zinc - 0.23%
-        "autotar-small-reuters-small-tf-idf-platinum": {"corpus_params": {"corpus_name": "reuters21578", "collection_name": "reuters21578", "topic_id": "platinum", "topic_set": "platinum"}, "vectorizer_params": x} # platinum - 0.06%
-    }
-    vectorizer_type = VectorizerType.tf_idf
+    arg_parser = argparse.ArgumentParser()
+    arg_parser.add_argument("-p", "--params", help="file name of experiment params", required=True)
+    args = arg_parser.parse_args()
+
+    try:
+        git_revision_hash = get_git_revision_hash()
+        git_revision_short_hash = git_revision_hash[:7]
+    except Exception as e:
+        print(f"Exception retrieving git commit hash")
+        git_revision_hash = "unavailable"
+        git_revision_short_hash = "unavailable"
+
+    params_file_location = os.path.join(os.getcwd(), "autostop/tar_model", args.params)
+    with open(params_file_location) as params_file:
+        params = json.load(params_file, object_hook=as_enum)
+        experiments = params["experiments"]
+
+    run_start_time = datetime.now()
+    number_of_experiments = len(experiments)
+    LOGGER.info(f"Running {number_of_experiments} experiments")
+    experiment_counter = 0
     for param_group_name, experiment_params in experiments.items():
+        fuzzy_artmap_params = experiment_params["fuzzy_artmap_params"]
+        experiment_counter += 1
+        param_group_name = param_group_name.replace("famdg", "autotar")
+        LOGGER.info(f"starting experiment: {param_group_name} - ({experiment_counter}/{number_of_experiments})")
         corpus_params = make_file_params(**experiment_params["corpus_params"])
-        # corpus_params = make_file_params(collection_name, corpus_name, topic_id, topic_id)
-        param_group_name = "AutoTAR"
-        experiment = keepsake.init(params={"run_group": param_group_name, "metric_type": MetricType.init.name, "corpus_params": corpus_params, "vectorizer_type": vectorizer_type.name, "random_state": json.dumps(random.getstate())})
-        autotar_method(**corpus_params, vectorizer_params=experiment_params["vectorizer_params"])
+        
+        experiment = keepsake.init(params={ "run_group": param_group_name, 
+                                            "metric_type": MetricType.init.name, 
+                                            "corpus_params": corpus_params, 
+                                            "vectorizer_type": experiment_params["vectorizer_type"].name, 
+                                            "vectorizer_params": json.dumps(experiment_params["vectorizer_params"], cls=EnumEncoder), 
+                                            "classifier_params": fuzzy_artmap_params, 
+                                            "random_state": json.dumps(random.getstate()), 
+                                            "run_notes": experiment_params["run_notes"],
+                                            "git_revision_hash": git_revision_hash,
+                                            "git_short_hash": git_revision_short_hash
+                                           })
+
+        try:
+            autotar_method(**corpus_params, vectorizer_type=experiment_params["vectorizer_type"], vectorizer_params=experiment_params["vectorizer_params"])
+        except Exception as e:
+            trace_back_string = get_traceback_string(e)
+            LOGGER.error(f"Error <{e}>\ntraceback: {trace_back_string}\nrunning experiment {param_group_name}\ncontinuing to next experiment...")
+        # tornado.ioloop.IOLoop.instance().start()
+        LOGGER.info(f"experiment complete: {param_group_name}")
+        gc.collect()
+        gc.collect()

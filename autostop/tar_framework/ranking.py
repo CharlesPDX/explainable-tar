@@ -346,6 +346,30 @@ class Ranker(object):
         else:
             pass
 
+
+    def train_sync(self, features, labels, doc_ids = None):
+        if self.model_type in self.fam_models:
+            number_of_features = features.shape[1]
+
+        if self.model_type == 'lambdamart':
+            # retrain the model at each TAR iteration. Otherwise, the training speed will be slowed drastically.
+            model = pyltr.models.LambdaMART(
+                metric=pyltr.metrics.NDCG(k=10),
+                n_estimators=100,
+                learning_rate=0.02,
+                max_features=0.5,
+                query_subsample=0.5,
+                max_leaf_nodes=10,
+                min_samples_leaf=64,
+                verbose=0,
+                random_state=self.random_state)
+        else:
+            model = self.model
+        if self.model_type != "famdg":
+            model.fit(features, labels)
+
+        # logging.info('Ranker.train is done.')
+
     async def train(self, features, labels, doc_ids = None):
         if self.model_type in self.fam_models:
             number_of_features = features.shape[1]
