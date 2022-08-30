@@ -55,21 +55,37 @@ def build_experiment_for_corpus_and_topics(corpus_and_topics, fuzzy_artmap_param
     for corpus, topics in corpus_and_topics.items():
         experiments.update(build_experiments(fuzzy_artmap_params, corpus, topics, vectorizer_types, run_notes, vectorizer_params))
 
-def param_builder(filename_prefix, rho, beta, corpus_and_topics, run_notes, active_learning_mode):
-    default_fuzzy_artmap_params = make_fuzzy_artmap_params(rho, 50, "famdg", committed_beta=beta, active_learning_mode=active_learning_mode)
-    default_fuzzy_artmap_params["scheduler_address"] = "localhost:8786"
-    default_vectorizer_types = [VectorizerType.tf_idf, VectorizerType.glove]
+def param_builder(filename_prefix, rho, beta, corpus_and_topics, run_notes, active_learning_mode, use_large_corpus = False):
+    tf_idf_starting_nodes = 200
+    glove_starting_nodes = 200
+    word2vec_starting_nodes = 3200
+    sbert_starting_nodes = 6500
 
-    word2vec_fuzzy_artmap_params = make_fuzzy_artmap_params(rho, 3200, "famdg", committed_beta=beta, active_learning_mode=active_learning_mode)
+    if use_large_corpus:
+        tf_idf_starting_nodes = 50
+        glove_starting_nodes = 20_000
+        word2vec_starting_nodes = 40_000
+        sbert_starting_nodes = 60_000    
+
+    default_fuzzy_artmap_params = make_fuzzy_artmap_params(rho, tf_idf_starting_nodes, "famdg", committed_beta=beta, active_learning_mode=active_learning_mode)
+    default_fuzzy_artmap_params["scheduler_address"] = "localhost:8786"
+    default_vectorizer_types = [VectorizerType.tf_idf]
+
+    glove_fuzzy_artmap_params = make_fuzzy_artmap_params(rho, glove_starting_nodes, "famdg", committed_beta=beta, active_learning_mode=active_learning_mode)
+    glove_fuzzy_artmap_params["scheduler_address"] = "localhost:8786"
+    glove_vectorizer_types = [VectorizerType.glove]
+
+    word2vec_fuzzy_artmap_params = make_fuzzy_artmap_params(rho, word2vec_starting_nodes, "famdg", committed_beta=beta, active_learning_mode=active_learning_mode)
     word2vec_fuzzy_artmap_params["scheduler_address"] = "localhost:8786"
     word2vec_vectorizer_types = [VectorizerType.word2vec]
 
-    sbert_fuzzy_artmap_params = make_fuzzy_artmap_params(rho, 6500, "famdg", committed_beta=beta, active_learning_mode=active_learning_mode)
+    sbert_fuzzy_artmap_params = make_fuzzy_artmap_params(rho, sbert_starting_nodes, "famdg", committed_beta=beta, active_learning_mode=active_learning_mode)
     sbert_fuzzy_artmap_params["scheduler_address"] = "localhost:8786"
     sbert_vectorizer_types = [VectorizerType.sbert]
 
     experiments = {}    
     build_experiment_for_corpus_and_topics(corpus_and_topics, default_fuzzy_artmap_params, default_vectorizer_types, experiments, run_notes)
+    build_experiment_for_corpus_and_topics(corpus_and_topics, glove_fuzzy_artmap_params, glove_vectorizer_types, experiments, run_notes)
     build_experiment_for_corpus_and_topics(corpus_and_topics, word2vec_fuzzy_artmap_params, word2vec_vectorizer_types, experiments, run_notes)
     build_experiment_for_corpus_and_topics(corpus_and_topics, sbert_fuzzy_artmap_params, sbert_vectorizer_types, experiments, run_notes)
 
@@ -103,7 +119,7 @@ full_topics={
     # "tr": ["433", "413", "athome102", "407", "athome104", "athome105", "410", "432", "416", "422", "414", "405", "434", "athome103", "athome107", "423", "403", "412", "409", "401", "athome101", "athome109", "426", "408", "402", "429", "418", "428", "athome106", "427", "419", "athome108", "430", "411", "415", "421", "417", "424", "404", "431", "425", "406", "athome100", "420"]
 }
 
-active_learning_mode_for_experiments = "ranked" # or "random"
+active_learning_mode_for_experiments = "random" #"ranked" # or "random"
 # experiments = [
     # ("lemma_alpha", 0.95, 0.80, learning_rate_run, "vigilance .95 with slow recode beta 0.80 Reuters and 20 Newsgroups", active_learning_mode_for_experiments),
     # ("lemma_beta", 0.95, 0.85, learning_rate_run, "vigilance .95 with slow recode beta 0.85 Reuters and 20 Newsgroups", active_learning_mode_for_experiments),
@@ -126,33 +142,35 @@ beta = 1.0
 experiments = []
 chunk_size = 3
 prefixes = []
-# for chunk_index, i in enumerate(range(0, len(newsgroups), chunk_size)):
-#     topics = {"20newsgroups": newsgroups[i:i+chunk_size]}
-#     prefixes.append(f'"echo_{chunk_index}"')
-#     experiments.append((f"echo_{chunk_index}", rho, beta, topics, f"vigilance {rho} with beta {beta} 20Newsgroups topics", active_learning_mode_for_experiments))
+newsgroups_prefix = "golf"
+reuters_small_prefix = "hotel"
+for chunk_index, i in enumerate(range(0, len(newsgroups), chunk_size)):
+    topics = {"20newsgroups": newsgroups[i:i+chunk_size]}
+    prefixes.append(f'"{newsgroups_prefix}_{chunk_index}"')
+    experiments.append((f"{newsgroups_prefix}_{chunk_index}", rho, beta, topics, f"vigilance {rho} with beta {beta} 20Newsgroups topics - {active_learning_mode_for_experiments} active learning mode", active_learning_mode_for_experiments))
 
-# for chunk_index, i in enumerate(range(0, len(small_reuters_topics), chunk_size)):
-#     topics = {"reuters21578": small_reuters_topics[i:i+chunk_size]}
-#     prefixes.append(f'"foxtrot_{chunk_index}"')
-#     experiments.append((f"foxtrot_{chunk_index}", rho, beta, topics, f"vigilance {rho} with beta {beta} 20Newsgroups topics", active_learning_mode_for_experiments))
-
-test_topics={
-    "reuters-rcv1": ["M131"],
-    # "tr": ["433", "413", "athome102", "407", "athome104", "athome105", "410", "432", "416", "422", "414", "405", "434", "athome103", "athome107", "423", "403", "412", "409", "401", "athome101", "athome109", "426", "408", "402", "429", "418", "428", "athome106", "427", "419", "athome108", "430", "411", "415", "421", "417", "424", "404", "431", "425", "406", "athome100", "420"]
-}
+for chunk_index, i in enumerate(range(0, len(small_reuters_topics), chunk_size)):
+    topics = {"reuters21578": small_reuters_topics[i:i+chunk_size]}
+    prefixes.append(f'"{reuters_small_prefix}_{chunk_index}"')
+    experiments.append((f"{reuters_small_prefix}_{chunk_index}", rho, beta, topics, f"vigilance {rho} with beta {beta} Reuters-21578 topics - {active_learning_mode_for_experiments} active learning mode", active_learning_mode_for_experiments))
 
 # test_topics={
-#     "athome1": ["athome102"]
+#     "reuters-rcv1": ["M131"],
+#     # "tr": ["433", "413", "athome102", "407", "athome104", "athome105", "410", "432", "416", "422", "414", "405", "434", "athome103", "athome107", "423", "403", "412", "409", "401", "athome101", "athome109", "426", "408", "402", "429", "418", "428", "athome106", "427", "419", "athome108", "430", "411", "415", "421", "417", "424", "404", "431", "425", "406", "athome100", "420"]
 # }
+
+test_topics={
+    "athome1": ["athome102"]
+}
 
 # test_topics={
 #     "athome4": ["401"]
 # }
 
-experiments = [
-    ("test_rcv1", rho, beta, test_topics, f"vigilance {rho} with beta {beta}", active_learning_mode_for_experiments),
-    # ("test_jb", rho, beta, test_topics, f"vigilance {rho} with beta {beta}", active_learning_mode_for_experiments),
-]
+# experiments = [
+#     # ("test_rcv1", rho, beta, test_topics, f"vigilance {rho} with beta {beta}", active_learning_mode_for_experiments, True),
+#     ("test_small_reuters", rho, beta, reuters_small_test, f"vigilance {rho} with beta {beta}", active_learning_mode_for_experiments, False),
+# ]
 
 for experiment in experiments:
     param_builder(*experiment)

@@ -146,13 +146,14 @@ async def fuzzy_artmap_method(data_name, topic_set, topic_id,
                 raise
             if classifier_params["active_learning_mode"] == "ranked":
                 zipped = sorted(scores, key=itemgetter(0), reverse=True)
-                if len(zipped) > 0:
-                    _, ranked_dids = zip(*zipped)
-                else:
-                    ranked_dids = []
             else:
-                _, ranked_dids = zip(*scores)
-
+                zipped = list(scores)                
+            
+            if len(zipped) > 0:
+                _, ranked_dids = zip(*zipped)
+            else:
+                ranked_dids = []
+            
             # cutting off instead of sampling
             selected_dids = assessor.get_top_assessed_dids(ranked_dids, batch_size)
             assessor.update_assess(selected_dids)
