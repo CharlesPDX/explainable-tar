@@ -34,6 +34,10 @@ from tar_framework.utils import *
 
 from trec_eval.tar_eval import main as eval
 
+# import cProfile
+# import pstats
+# profiler = cProfile.Profile()
+
 def get_traceback_string(e: Exception):
     if e is None:
         return "Passed exception is none!"
@@ -70,7 +74,7 @@ async def fuzzy_artmap_method(data_name, topic_set, topic_id,
 
     LOGGER.info('Model configuration: {}.'.format(model_name))
     LOGGER.debug('Model configuration: {}.'.format(model_name))
-
+    # profiler.enable()
     # loading data
     assessor = Assessor(query_file, qrel_file, doc_id_file, doc_text_file)
     complete_dids = assessor.get_complete_dids()
@@ -94,7 +98,10 @@ async def fuzzy_artmap_method(data_name, topic_set, topic_id,
     LOGGER.info("Caching corpus")
     await ranker.cache_corpus_in_model(complete_dids)
     LOGGER.info("Caching complete")
-        
+    # profiler.disable()
+    # stats = pstats.Stats(profiler).sort_stats('cumtime')
+    # stats.print_stats()
+    
     # starting the TAR process
     start_time = datetime.now()
     # perform initial model training, with some positive examples
@@ -316,6 +323,10 @@ if __name__ == '__main__':
         # else:
         try:
             tornado.ioloop.IOLoop.current().run_sync(main)
+        except tornado.iostream.StreamClosedError as stream_error:
+            trace_back_string = get_traceback_string(stream_error)
+            LOGGER.fatal(f"At least one worker is terminated, cannot continue, exiting on {param_group_name}\ntraceback: {trace_back_string}")
+            raise
         except Exception as e:
             trace_back_string = get_traceback_string(e)
             LOGGER.error(f"Error <{e}>\ntraceback: {trace_back_string}\nrunning experiment {param_group_name}\ncontinuing to next experiment...")

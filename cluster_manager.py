@@ -61,7 +61,7 @@ leader_instance_private_ip = None
 can_terminate_leader = False
 
 worker_volume_size = 30
-leader_volume_size = 31
+leader_volume_size = 40
 sidecar_volume_size = 30
 
 def create_workers(ec2_resource):
@@ -284,6 +284,11 @@ def save_results(params_path):
             with Connection(host=worker_dns_name, user=instance_username, connect_kwargs={"key_filename": ssh_key_location}) as worker_connection:
                 logger.info(f"getting worker {worker_index} log file to {str(local_logs_path / f'worker_{worker_index}_log.log')}")
                 worker_connection.get("/home/ubuntu/auto-stop-tar/autostop/tar_framework/fuzzy_artmap_gpu_distributed.log", str(local_logs_path / f"worker_{worker_index}_log.log"))
+                try:
+                    logger.info("removing logs from worker")
+                    worker_connection.run("rm -f /home/ubuntu/auto-stop-tar/autostop/tar_framework/fuzzy_artmap_gpu_distributed.log")
+                except Exception as e:
+                    logger.warning(f"Error removing logs from workers: {e}")                
     except Exception as e:
         logger.warning(f"Error getting logs from workers: {e}")
     
@@ -312,6 +317,14 @@ def save_results(params_path):
             os.remove(logs_archive_file_name)
         except Exception as e:
             logger. warning(f"Error compressing logs and uploading to s3: {e}")
+        finally:
+            try:
+                logger.info("removing logs from leader")
+                leader_connection.run("rm -f /home/ubuntu/auto-stop-tar/auto_tar.log")
+                leader_connection.run("rm -f /home/ubuntu/auto-stop-tar/fuzzy_artmap_gpu_distributed.log")
+            except Exception as e:
+                logger. warning(f"Error removing logs from leader: {e}")
+            
         
         results_archive_file_name = f"{run_prefix}keepsake_results_{args.id}_{run_timestamp}.tar.gz"
         s3_upload_command = f"aws s3 cp {results_archive_file_name} s3://{results_bucket}"
@@ -451,7 +464,7 @@ def bootstrap_sidecar(prefixes):
         sidecar_connection.put(env_update_path, env_destination)
         logger.info("Sidecar prepared!")
         logger.info(f"run command:\nssh -i {ssh_key_location} ubuntu@{sidecar_information['Reservations'][0]['Instances'][0]['PublicIpAddress']}")
-        logger.info("follow on commands\ntmux new -d -s cluster_manager && tmux attach -t cluster_manager\ncd auto-stop-tar/ && source .venv/bin/activate\npython ./cluster_manager.py -i test_run -w 4 -t\nor\npython ./cluster_manager.py -i test_run -a -u -t")
+        logger.info(f"follow on commands\ntmux new -d -s cluster_manager && tmux attach -t cluster_manager\ncd auto-stop-tar/ && source .venv/bin/activate\npython ./cluster_manager.py -i {args.id} -w 4 -t\nor\npython ./cluster_manager.py -i {args.id} -a -u -t")
 
 if __name__ == "__main__":
     # "args": ["-p", "~/auto-stop-tar/autostop/tar_model/params.json", "-i", "test_run", "-w", "4", "-t", "--update"]
@@ -475,7 +488,8 @@ if __name__ == "__main__":
     # prefixes = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta"]
     # prefixes = ["foxtrot_18", "foxtrot_19", "foxtrot_20", "foxtrot_21", "foxtrot_22", "foxtrot_23", "foxtrot_24", "foxtrot_25", "foxtrot_26", "foxtrot_27", "foxtrot_28", "foxtrot_29", "foxtrot_30", "foxtrot_31", "foxtrot_32", "foxtrot_33", "foxtrot_34", "foxtrot_35", "foxtrot_36", "foxtrot_37", "foxtrot_38", "foxtrot_39", "foxtrot_40", "foxtrot_41", "foxtrot_42", "foxtrot_43", "foxtrot_44"]
     # prefixes = ["test_small_reuters"]
-    prefixes = ["golf_0", "golf_1", "golf_2", "golf_3", "golf_4", "golf_5", "golf_6", "hotel_0", "hotel_1", "hotel_2", "hotel_3", "hotel_4", "hotel_5", "hotel_6", "hotel_7", "hotel_8", "hotel_9", "hotel_10", "hotel_11", "hotel_12", "hotel_13", "hotel_14", "hotel_15", "hotel_16", "hotel_17", "hotel_18", "hotel_19", "hotel_20", "hotel_21", "hotel_22", "hotel_23", "hotel_24", "hotel_25", "hotel_26", "hotel_27", "hotel_28", "hotel_29", "hotel_30", "hotel_31", "hotel_32", "hotel_33", "hotel_34", "hotel_35", "hotel_36", "hotel_37", "hotel_38", "hotel_39", "hotel_40", "hotel_41", "hotel_42", "hotel_43", "hotel_44"]
+    # prefixes = ["golf_3", "golf_4", "golf_5", "golf_6", "hotel_0", "hotel_1", "hotel_2", "hotel_3", "hotel_4", "hotel_5", "hotel_6", "hotel_7", "hotel_8", "hotel_9", "hotel_10", "hotel_11", "hotel_12", "hotel_13", "hotel_14", "hotel_15", "hotel_16", "hotel_17", "hotel_18", "hotel_19", "hotel_20", "hotel_21", "hotel_22", "hotel_23", "hotel_24", "hotel_25", "hotel_26", "hotel_27", "hotel_28", "hotel_29", "hotel_30", "hotel_31", "hotel_32", "hotel_33", "hotel_34", "hotel_35", "hotel_36", "hotel_37", "hotel_38", "hotel_39", "hotel_40", "hotel_41", "hotel_42", "hotel_43", "hotel_44"]
+    prefixes = ["india_0", "india_1", "india_2", "india_3", "india_4", "india_5", "india_6", "india_7", "india_8", "india_9", "india_10", "india_11", "india_12", "india_13", "india_14", "india_15", "india_16", "india_17", "india_18", "india_19", "india_20", "india_21", "india_22", "india_23", "india_24", "india_25", "india_26", "india_27", "india_28", "india_29", "india_30", "india_31", "india_32", "india_33", "india_34", "india_35", "india_36", "india_37", "india_38", "india_39", "india_40", "india_41", "india_42", "india_43", "india_44", "india_45", "india_46", "india_47", "india_48", "india_49", "india_50", "india_51", "india_52", "india_53", "india_54", "india_55", "india_56", "india_57", "india_58", "india_59", "india_60", "india_61", "india_62", "india_63", "india_64", "india_65", "india_66", "india_67", "india_68", "india_69", "india_70", "india_71", "india_72", "india_73", "india_74", "india_75", "india_76", "india_77", "india_78", "india_79", "india_80", "india_81", "india_82", "india_83", "india_84", "india_85", "india_86", "india_87", "india_88", "india_89", "india_90", "india_91", "india_92", "india_93", "india_94", "india_95", "india_96", "india_97", "india_98", "india_99", "india_100", "india_101", "india_102", "india_103", "india_104", "india_105", "india_106", "india_107", "india_108", "india_109", "india_110", "india_111", "india_112", "india_113", "india_114", "india_115", "india_116", "india_117", "india_118", "india_119", "india_120", "india_121", "india_122", "india_123", "india_124", "india_125", "juliett_0", "juliett_1", "juliett_2", "juliett_3", "juliett_4", "juliett_5", "juliett_6", "juliett_7", "juliett_8", "juliett_9", "kilo_0", "kilo_1", "kilo_2", "kilo_3", "kilo_4", "kilo_5", "kilo_6", "kilo_7", "kilo_8", "kilo_9", "kilo_10", "kilo_11", "kilo_12", "kilo_13", "kilo_14", "kilo_15", "kilo_16", "kilo_17", "kilo_18", "kilo_19", "kilo_20", "kilo_21", "kilo_22", "kilo_23", "kilo_24", "kilo_25", "kilo_26", "kilo_27", "kilo_28", "kilo_29", "kilo_30", "kilo_31", "kilo_32", "kilo_33"]
     
     try:
         if args.bootstrap:
