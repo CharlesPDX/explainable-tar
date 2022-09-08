@@ -3,8 +3,8 @@
 # "Fuzzy ARTMAP: A Neural Network Architecture for Incremental Supervised Learning of Analog Multidimensional Maps"
 # IEEE Transactions on Neural Networks, Vol. 3, No. 5, pp. 698-713.
 
-# import cProfile
-# import pstats
+import cProfile
+import pstats
 
 import gc
 import sys
@@ -466,13 +466,15 @@ class FuzzyArtMapGpuWorker:
         self.committed_nodes.add(J)
 
     def fit(self, input_vectors, class_vectors, doc_ids):
+        number_of_increases_before_training = self.number_of_increases
         for document_index, input_vector in enumerate(input_vectors):
             doc_id = doc_ids[document_index]
             if doc_id in self.document_index_mapping:
                 self.train(self.corpus[self.document_index_mapping[doc_id]], self.class_vectors[class_vectors[document_index]])
             else:
                 self.train(FuzzyArtMapGpuWorker.complement_encode(torch.tensor(input_vector.toarray(), dtype=torch.bfloat16)), self.class_vectors[class_vectors[document_index]])
-        logger.info(f"updated {len(self.updated_nodes)} nodes: {','.join([str(J) for J in self.updated_nodes])}")
+        number_of_added_nodes = self.number_of_increases - number_of_increases_before_training
+        logger.info(f"added {number_of_added_nodes} nodes, updated {len(self.updated_nodes)} nodes: {','.join([str(J) for J in self.updated_nodes])}")
         self.recompute_S_cache()
         logger.info("updated S cache")
         self.updated_nodes.clear()
@@ -503,10 +505,11 @@ class FuzzyArtMapGpuWorker:
             self.document_index_mapping.pop(document_id, None)
 
     def recompute_S_cache(self):
-        # self.profiler = cProfile.Profile()
-        # self.profiler.enable()
+        self.profiler = cProfile.Profile()
+        self.profiler.enable()
         updated_nodes = list(self.updated_nodes)
         N = self.weight_a.shape[0]
+        logger.info(f"recomputing S Cache with N={N}")
         if self.use_vector:
             index = list(self.document_index_mapping.values())
             if self.weight_a.shape[1] > 300:
@@ -528,9 +531,9 @@ class FuzzyArtMapGpuWorker:
                 torch.minimum(self.corpus[index].repeat(N,1)[updated_nodes], self.weight_a[updated_nodes], out=A_AND_w)
                 self.S_cache[index, updated_nodes] = torch.sum(A_AND_w, 1)
 
-        # self.profiler.disable()
-        # stats = pstats.Stats(self.profiler).sort_stats('cumtime')
-        # stats.print_stats()
+        self.profiler.disable()
+        stats = pstats.Stats(self.profiler).sort_stats('cumtime')
+        stats.print_stats()
 
     def _cached_resonance_search(self, cached_S):
         T = cached_S / self.choice_denominator
