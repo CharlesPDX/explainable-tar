@@ -265,9 +265,11 @@ class LocalFuzzyArtMapGpu:
         self.committed_nodes.add(J)
 
     def fit(self, input_vectors, class_vectors):
+        number_of_increases_before_training = self.number_of_increases
         for document_index, input_vector in enumerate(input_vectors):
             self.train(FuzzyArtMapGpuWorker.complement_encode(torch.tensor(input_vector.toarray(), dtype=torch.float)), self.class_vectors[class_vectors[document_index]])            
-        logger.info(f"updated {len(self.updated_nodes)} nodes: {','.join([str(J) for J in self.updated_nodes])}")
+        number_of_added_nodes = (self.number_of_increases - number_of_increases_before_training) * self.node_increase_step
+        logger.info(f"added {number_of_added_nodes} nodes, updated {len(self.updated_nodes)} nodes: {','.join([str(J) for J in self.updated_nodes])}")
         self.updated_nodes.clear()
         # self.number_of_increases = 0
     
@@ -478,7 +480,7 @@ class FuzzyArtMapGpuWorker:
         # self.profiler.disable()
         # stats = pstats.Stats(self.profiler).sort_stats('cumtime')
         # stats.print_stats()
-        number_of_added_nodes = (self.number_of_increases - number_of_increases_before_training) * 5
+        number_of_added_nodes = (self.number_of_increases - number_of_increases_before_training) * self.node_increase_step
         logger.info(f"added {number_of_added_nodes} nodes, updated {len(self.updated_nodes)} nodes: {','.join([str(J) for J in self.updated_nodes])}")
         self.recompute_S_cache()
         logger.info("updated S cache")
