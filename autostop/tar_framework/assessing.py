@@ -60,6 +60,8 @@ class DataLoader(object):
         with open(doc_text_file, 'r', encoding='utf8') as f:
             for line in f:
                 # entry = {'id': doc_id, 'title': subject, 'content': content}
+                if len(line) == 1:
+                    continue
                 entry = json.loads(line)
                 doc_id = entry['id']
                 text = entry['title'] + ' ' + entry['content']

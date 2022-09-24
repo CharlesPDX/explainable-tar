@@ -87,7 +87,7 @@ async def fuzzy_artmap_method(data_name, topic_set, topic_id,
     # local parameters
     stopping = False
     t = 0
-    batch_size = 100
+    batch_size = 1_000
 
     classifier_params["batch_size"] = batch_size
 

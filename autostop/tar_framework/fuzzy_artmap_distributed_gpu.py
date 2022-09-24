@@ -126,11 +126,11 @@ class LocalFuzzyArtMapGpu:
                 logger.warning("CUDA requested but not available, using CPU.")
 
         # Initial weights in ARTa. All set to 1 Row-j, col-i entry = weight from input node i to F2 coding node j
-        self.weight_a = torch.ones((f2_size, f1_size), device=self.device, dtype=torch.bfloat16)
+        self.weight_a = torch.ones((f2_size, f1_size), device=self.device, dtype=torch.float)
         self.input_vector_sum = f1_size / 2
 
         # Row-j, col-k entry = weight from ARTa F2  node j to Map Field node k
-        self.weight_ab = torch.ones((f2_size, number_of_categories), device=self.device, dtype=torch.bfloat16)
+        self.weight_ab = torch.ones((f2_size, number_of_categories), device=self.device, dtype=torch.float)
         self.committed_nodes = set()
         
         self.classes_ = np.array([1])
@@ -139,12 +139,12 @@ class LocalFuzzyArtMapGpu:
         self.node_increase_step = 50 # number of F2 nodes to add when required
         self.number_of_increases = 0
         
-        # self.A_for_each_F2_node = torch.empty(self.weight_a.shape, device=self.device, dtype=torch.bfloat16)
-        self.A_and_w = torch.empty(self.weight_a.shape, device=self.device, dtype=torch.bfloat16)
-        self.ones = torch.ones((f2_size, 1), device=self.device, dtype=torch.bfloat16)
+        # self.A_for_each_F2_node = torch.empty(self.weight_a.shape, device=self.device, dtype=torch.float)
+        self.A_and_w = torch.empty(self.weight_a.shape, device=self.device, dtype=torch.float)
+        self.ones = torch.ones((f2_size, 1), device=self.device, dtype=torch.float)
         self.class_vectors = {
-            0: FuzzyArtMapGpuWorker.complement_encode(torch.tensor([[0]], dtype=torch.bfloat16)),
-            1: FuzzyArtMapGpuWorker.complement_encode(torch.tensor([[1]], dtype=torch.bfloat16)),
+            0: FuzzyArtMapGpuWorker.complement_encode(torch.tensor([[0]], dtype=torch.float)),
+            1: FuzzyArtMapGpuWorker.complement_encode(torch.tensor([[1]], dtype=torch.float)),
         }
     
     def _resonance_search(self, input_vector: torch.tensor, already_reset_nodes: List[int], rho_a: float):
@@ -152,7 +152,7 @@ class LocalFuzzyArtMapGpu:
         resonant_a = False
         N, S, T = self.calculate_activation(input_vector)
         while not resonant_a:
-            T[already_reset_nodes] = torch.zeros((len(already_reset_nodes), ), dtype=torch.bfloat16, device=self.device)
+            T[already_reset_nodes] = torch.zeros((len(already_reset_nodes), ), dtype=torch.float, device=self.device)
             J = torch.argmax(T)
             membership_degree = S[J]/self.input_vector_sum
             if membership_degree.item() >= rho_a or math.isclose(membership_degree.item(), rho_a):
@@ -164,9 +164,9 @@ class LocalFuzzyArtMapGpu:
             # Creating a new node if we've reset all of them
             if len(already_reset_nodes) >= N:                
                 if self.max_nodes is None or self.max_nodes >= (N + self.node_increase_step):
-                    self.weight_a = torch.vstack((self.weight_a, torch.ones((self.node_increase_step,  self.weight_a.shape[1]), device=self.device, dtype=torch.bfloat16)))
-                    self.weight_ab = torch.vstack((self.weight_ab, torch.ones((self.node_increase_step, self.weight_ab.shape[1]), device=self.device, dtype=torch.bfloat16)))
-                    self.A_and_w = torch.vstack((self.A_and_w, torch.empty((self.node_increase_step,  self.weight_a.shape[1]), device=self.device, dtype=torch.bfloat16)))
+                    self.weight_a = torch.vstack((self.weight_a, torch.ones((self.node_increase_step,  self.weight_a.shape[1]), device=self.device, dtype=torch.float)))
+                    self.weight_ab = torch.vstack((self.weight_ab, torch.ones((self.node_increase_step, self.weight_ab.shape[1]), device=self.device, dtype=torch.float)))
+                    self.A_and_w = torch.vstack((self.A_and_w, torch.empty((self.node_increase_step,  self.weight_a.shape[1]), device=self.device, dtype=torch.float)))
                     self.number_of_increases += 1
                     # Give the new F2a node a w_ab entry, this new node should win
                 else:
@@ -185,7 +185,7 @@ class LocalFuzzyArtMapGpu:
         N, S, T = self.calculate_activation(input_vector)
         sorted_values, indices = torch.sort(T, stable=True, descending=True)
         all_membership_degrees = S / self.input_vector_sum
-        T[already_reset_nodes] = torch.zeros((len(already_reset_nodes), ), dtype=torch.bfloat16, device=self.device)
+        T[already_reset_nodes] = torch.zeros((len(already_reset_nodes), ), dtype=torch.float, device=self.device)
         while not resonant_a:
             for J in indices:
                 if J.item() in already_reset_nodes:
@@ -202,9 +202,9 @@ class LocalFuzzyArtMapGpu:
             # Creating a new node if we've reset all of them
             if len(already_reset_nodes) >= N:                
                 if self.max_nodes is None or self.max_nodes >= (N + self.node_increase_step):
-                    self.weight_a = torch.vstack((self.weight_a, torch.ones((self.node_increase_step,  self.weight_a.shape[1]), device=self.device, dtype=torch.bfloat16)))
-                    self.weight_ab = torch.vstack((self.weight_ab, torch.ones((self.node_increase_step, self.weight_ab.shape[1]), device=self.device, dtype=torch.bfloat16)))
-                    self.A_and_w = torch.vstack((self.A_and_w, torch.empty((self.node_increase_step,  self.weight_a.shape[1]), device=self.device, dtype=torch.bfloat16)))
+                    self.weight_a = torch.vstack((self.weight_a, torch.ones((self.node_increase_step,  self.weight_a.shape[1]), device=self.device, dtype=torch.float)))
+                    self.weight_ab = torch.vstack((self.weight_ab, torch.ones((self.node_increase_step, self.weight_ab.shape[1]), device=self.device, dtype=torch.float)))
+                    self.A_and_w = torch.vstack((self.A_and_w, torch.empty((self.node_increase_step,  self.weight_a.shape[1]), device=self.device, dtype=torch.float)))
                     self.number_of_increases += 1
                     # Give the new F2a node a w_ab entry, this new node should win
                 else:                   
@@ -218,7 +218,7 @@ class LocalFuzzyArtMapGpu:
                 N, S, T = self.calculate_activation(input_vector)
                 sorted_values, indices = torch.sort(T, stable=True, descending=True)
                 all_membership_degrees = S / self.input_vector_sum
-                T[already_reset_nodes] = torch.zeros((len(already_reset_nodes), ), dtype=torch.bfloat16, device=self.device)
+                T[already_reset_nodes] = torch.zeros((len(already_reset_nodes), ), dtype=torch.float, device=self.device)
         return J.item(), all_membership_degrees[J].item()
 
     def calculate_activation(self, input_vector):
@@ -267,7 +267,7 @@ class LocalFuzzyArtMapGpu:
     def fit(self, input_vectors, class_vectors):
         number_of_increases_before_training = self.number_of_increases
         for document_index, input_vector in enumerate(input_vectors):
-            self.train(FuzzyArtMapGpuWorker.complement_encode(torch.tensor(input_vector.toarray(), dtype=torch.bfloat16)), self.class_vectors[class_vectors[document_index]])            
+            self.train(FuzzyArtMapGpuWorker.complement_encode(torch.tensor(input_vector.toarray(), dtype=torch.float)), self.class_vectors[class_vectors[document_index]])            
         number_of_added_nodes = (self.number_of_increases - number_of_increases_before_training) * self.node_increase_step
         logger.info(f"added {number_of_added_nodes} nodes, updated {len(self.updated_nodes)} nodes: {','.join([str(J) for J in self.updated_nodes])}")
         self.updated_nodes.clear()
@@ -330,14 +330,14 @@ class FuzzyArtMapGpuWorker:
             self.device = torch.device("cpu")
             if use_cuda_if_available:
                 logger.warning("CUDA requested but not available, using CPU.")
-        self.weight_a = torch.ones((f2_size, f1_size), device=self.device, dtype=torch.bfloat16)
+        self.weight_a = torch.ones((f2_size, f1_size), device=self.device, dtype=torch.float)
         self.input_vector_sum = f1_size / 2
-        self.weight_ab = torch.ones((f2_size, number_of_categories), device=self.device, dtype=torch.bfloat16)
+        self.weight_ab = torch.ones((f2_size, number_of_categories), device=self.device, dtype=torch.float)
         self.class_vectors = {
-            0: FuzzyArtMapGpuWorker.complement_encode(torch.tensor([[0]], dtype=torch.bfloat16)),
-            1: FuzzyArtMapGpuWorker.complement_encode(torch.tensor([[1]], dtype=torch.bfloat16)),
+            0: FuzzyArtMapGpuWorker.complement_encode(torch.tensor([[0]], dtype=torch.float)),
+            1: FuzzyArtMapGpuWorker.complement_encode(torch.tensor([[1]], dtype=torch.float)),
         }
-        self.A_and_w = torch.empty(self.weight_a.shape, device=self.device, dtype=torch.bfloat16)
+        self.A_and_w = torch.empty(self.weight_a.shape, device=self.device, dtype=torch.float)
         logger.info(f"f1_size: {f1_size}, f2_size:{f2_size}, committed beta = {self.committed_beta}, active learning mode = {self.active_learning_mode}, batch size = {self.batch_size}")
         # self.profiler = cProfile.Profile()
 
@@ -345,7 +345,7 @@ class FuzzyArtMapGpuWorker:
         resonant_a = False
         N, S, T = self.calculate_activation(input_vector)
         while not resonant_a:
-            T[already_reset_nodes] = torch.zeros((len(already_reset_nodes), ), dtype=torch.bfloat16, device=self.device)
+            T[already_reset_nodes] = torch.zeros((len(already_reset_nodes), ), dtype=torch.float, device=self.device)
             J = torch.argmax(T)
             membership_degree = S[J]/self.input_vector_sum
             if membership_degree.item() >= rho_a or math.isclose(membership_degree.item(), rho_a):
@@ -357,10 +357,10 @@ class FuzzyArtMapGpuWorker:
             # Creating a new node if we've reset all of them
             if len(already_reset_nodes) >= N:                
                 if self.max_nodes is None or self.max_nodes >= (N + self.node_increase_step):
-                    self.weight_a = torch.vstack((self.weight_a, torch.ones((self.node_increase_step,  self.weight_a.shape[1]), device=self.device, dtype=torch.bfloat16)))
-                    self.weight_ab = torch.vstack((self.weight_ab, torch.ones((self.node_increase_step, self.weight_ab.shape[1]), device=self.device, dtype=torch.bfloat16)))
-                    self.S_cache = torch.hstack((self.S_cache, torch.ones((self.corpus.shape[0], self.node_increase_step), device=self.device, dtype=torch.bfloat16)))
-                    self.A_and_w = torch.vstack((self.A_and_w, torch.empty((self.node_increase_step,  self.weight_a.shape[1]), device=self.device, dtype=torch.bfloat16)))
+                    self.weight_a = torch.vstack((self.weight_a, torch.ones((self.node_increase_step,  self.weight_a.shape[1]), device=self.device, dtype=torch.float)))
+                    self.weight_ab = torch.vstack((self.weight_ab, torch.ones((self.node_increase_step, self.weight_ab.shape[1]), device=self.device, dtype=torch.float)))
+                    self.S_cache = torch.hstack((self.S_cache, torch.ones((self.corpus.shape[0], self.node_increase_step), device=self.device, dtype=torch.float)))
+                    self.A_and_w = torch.vstack((self.A_and_w, torch.empty((self.node_increase_step,  self.weight_a.shape[1]), device=self.device, dtype=torch.float)))
                     self.number_of_increases += 1
                     # Give the new F2a node a w_ab entry, this new node should win
                 else:                   
@@ -380,7 +380,7 @@ class FuzzyArtMapGpuWorker:
         N, S, T = self.calculate_activation(input_vector)
         sorted_values, indices = torch.sort(T, stable=True, descending=True)
         all_membership_degrees = S / self.input_vector_sum
-        T[already_reset_nodes] = torch.zeros((len(already_reset_nodes), ), dtype=torch.bfloat16, device=self.device)
+        T[already_reset_nodes] = torch.zeros((len(already_reset_nodes), ), dtype=torch.float, device=self.device)
         while not resonant_a:
             for J in indices:
                 if J.item() in already_reset_nodes:
@@ -397,10 +397,10 @@ class FuzzyArtMapGpuWorker:
             # Creating a new node if we've reset all of them
             if len(already_reset_nodes) >= N:                
                 if self.max_nodes is None or self.max_nodes >= (N + self.node_increase_step):
-                    self.weight_a = torch.vstack((self.weight_a, torch.ones((self.node_increase_step,  self.weight_a.shape[1]), device=self.device, dtype=torch.bfloat16)))
-                    self.weight_ab = torch.vstack((self.weight_ab, torch.ones((self.node_increase_step, self.weight_ab.shape[1]), device=self.device, dtype=torch.bfloat16)))
-                    self.S_cache = torch.vstack((self.S_cache, torch.ones((self.node_increase_step, self.corpus.shape[0]), device=self.device, dtype=torch.bfloat16)))
-                    self.A_and_w = torch.vstack((self.A_and_w, torch.empty((self.node_increase_step,  self.weight_a.shape[1]), device=self.device, dtype=torch.bfloat16)))
+                    self.weight_a = torch.vstack((self.weight_a, torch.ones((self.node_increase_step,  self.weight_a.shape[1]), device=self.device, dtype=torch.float)))
+                    self.weight_ab = torch.vstack((self.weight_ab, torch.ones((self.node_increase_step, self.weight_ab.shape[1]), device=self.device, dtype=torch.float)))
+                    self.S_cache = torch.vstack((self.S_cache, torch.ones((self.node_increase_step, self.corpus.shape[0]), device=self.device, dtype=torch.float)))
+                    self.A_and_w = torch.vstack((self.A_and_w, torch.empty((self.node_increase_step,  self.weight_a.shape[1]), device=self.device, dtype=torch.float)))
                     self.number_of_increases += 1
                     # Give the new F2a node a w_ab entry, this new node should win
                 else:                   
@@ -413,10 +413,10 @@ class FuzzyArtMapGpuWorker:
                 N, S, T = self.calculate_activation(input_vector)
                 sorted_values, indices = torch.sort(T, stable=True, descending=True)
                 all_membership_degrees = S / self.input_vector_sum
-                T[already_reset_nodes] = torch.zeros((len(already_reset_nodes), ), dtype=torch.bfloat16, device=self.device)
+                T[already_reset_nodes] = torch.zeros((len(already_reset_nodes), ), dtype=torch.float, device=self.device)
 
                 # N, S, T = self.calculate_activation(input_vector)
-                # T[already_reset_nodes] = torch.zeros((len(already_reset_nodes), ), dtype=torch.bfloat16, device=self.device)
+                # T[already_reset_nodes] = torch.zeros((len(already_reset_nodes), ), dtype=torch.float, device=self.device)
                 # sorted_values, indices = torch.sort(T, stable=True, descending=True)
                 # all_membership_degrees = S / self.input_vector_sum
                 
@@ -476,7 +476,7 @@ class FuzzyArtMapGpuWorker:
             if doc_id in self.document_index_mapping:
                 self.train(self.corpus[self.document_index_mapping[doc_id]], self.class_vectors[class_vectors[document_index]])
             else:
-                self.train(FuzzyArtMapGpuWorker.complement_encode(torch.tensor(input_vector.toarray(), dtype=torch.bfloat16)), self.class_vectors[class_vectors[document_index]])
+                self.train(FuzzyArtMapGpuWorker.complement_encode(torch.tensor(input_vector.toarray(), dtype=torch.float)), self.class_vectors[class_vectors[document_index]])
         # self.profiler.disable()
         # stats = pstats.Stats(self.profiler).sort_stats('cumtime')
         # stats.print_stats()
@@ -496,14 +496,14 @@ class FuzzyArtMapGpuWorker:
         logger.info(f"getting features")
         corpus = ranker.get_feature_by_did(document_index_mapping.keys())
         logger.info(f"complement encoding")
-        self.corpus = FuzzyArtMapGpuWorker.complement_encode(torch.tensor(corpus.toarray().astype(np.float16), device="cpu", dtype=torch.bfloat16))
+        self.corpus = FuzzyArtMapGpuWorker.complement_encode(torch.tensor(corpus.toarray(), device="cpu", dtype=torch.float))
         del corpus
         del ranker
         gc.collect()
         self.excluded_document_ids = set()
         N = self.weight_a.shape[0]
         logger.info(f"initializing S_cache")
-        self.S_cache = torch.tensor(self.input_vector_sum, device=self.device, dtype=torch.bfloat16).repeat(N, self.corpus.shape[0])
+        self.S_cache = torch.tensor(self.input_vector_sum, device=self.device, dtype=torch.float).repeat(N, self.corpus.shape[0])
         logger.info("worker corpus caching complete")
 
     def remove_documents_from_cache(self, document_ids):
@@ -525,17 +525,17 @@ class FuzzyArtMapGpuWorker:
                 chunk_size = 5
             else:
                 chunk_size = 500
-            A_AND_w = torch.empty((chunk_size, len(updated_nodes), self.weight_a.shape[1]), device=self.device, dtype=torch.bfloat16)
+            A_AND_w = torch.empty((chunk_size, len(updated_nodes), self.weight_a.shape[1]), device=self.device, dtype=torch.float)
             expanded_weights = self.weight_a[updated_nodes].unsqueeze(0).repeat(chunk_size,1,1)
             for i in range(0, len(index), chunk_size):
                 sub_indexes = index[i:i+chunk_size]
                 if len(sub_indexes) < chunk_size:
                     expanded_weights = self.weight_a[updated_nodes].unsqueeze(0).repeat(len(sub_indexes),1,1)
-                    A_AND_w = torch.empty((len(sub_indexes), len(updated_nodes), self.weight_a.shape[1]), device=self.device, dtype=torch.bfloat16)
+                    A_AND_w = torch.empty((len(sub_indexes), len(updated_nodes), self.weight_a.shape[1]), device=self.device, dtype=torch.float)
                 torch.minimum(self.corpus[sub_indexes].unsqueeze(1).repeat(1,len(updated_nodes),1), expanded_weights, out=A_AND_w)
                 self.S_cache.index_put_((torch.tensor(updated_nodes).repeat(len(sub_indexes),1), torch.tensor(sub_indexes).unsqueeze(1)), torch.sum(A_AND_w, 2))
         else:
-            A_AND_w = torch.empty((N, len(updated_nodes)), device=self.device, dtype=torch.bfloat16)
+            A_AND_w = torch.empty((N, len(updated_nodes)), device=self.device, dtype=torch.float)
             for index in self.document_index_mapping.values():
                 torch.minimum(self.corpus[index].repeat(N,1)[updated_nodes], self.weight_a[updated_nodes], out=A_AND_w)
                 self.S_cache[updated_nodes, index] = torch.sum(A_AND_w, 1)
@@ -574,14 +574,14 @@ class FuzzyArtMapGpuWorker:
             # self.profiler.enable()
         chunk_size = 30_000
         N = self.S_cache.shape[0]
-        T = torch.empty((chunk_size, N), device=self.device, dtype=torch.bfloat16)
-        sorted_values = torch.empty((chunk_size, N), device=self.device, dtype=torch.bfloat16)
-        indices = torch.empty((chunk_size, N), device=self.device, dtype=torch.bfloat16)
+        T = torch.empty((chunk_size, N), device=self.device, dtype=torch.float)
+        sorted_values = torch.empty((chunk_size, N), device=self.device, dtype=torch.float)
+        indices = torch.empty((chunk_size, N), device=self.device, dtype=torch.float)
         for i in range(0, len(indexes), chunk_size):
             sub_keys = keys[i:i+chunk_size]
             sub_indexes = indexes[i:i+chunk_size]
             if len(sub_indexes) < chunk_size:
-                T = torch.empty((len(sub_indexes), N), device=self.device, dtype=torch.bfloat16)
+                T = torch.empty((len(sub_indexes), N), device=self.device, dtype=torch.float)
             torch.divide(self.S_cache.transpose(0,1)[sub_indexes], self.choice_denominator, out=T)
             sorted_values, indices = torch.max(T, dim=1)
             for j, key in enumerate(sub_keys):
