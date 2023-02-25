@@ -7,6 +7,9 @@ import re
 from trec_eval.measures.tar_rulers import TarRuler, TarAggRuler
 from trec_eval.seeker.trec_qrel_handler import TrecQrelHandler
 
+import logging
+logging.basicConfig(level = logging.INFO, format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 def main(results_file, qrel_file):
 
@@ -19,7 +22,7 @@ def main(results_file, qrel_file):
         # checks to make sure the document is in the qrels and was retrieved by the pubmed query
         v = 0
         if doc_id in seen_dict:
-            print("{} Duplicate {}".format(topic_id, doc_id))
+            logger.info("{} Duplicate {}".format(topic_id, doc_id))
             v = None
         else:
             seen_dict[d] = 1
@@ -82,7 +85,7 @@ def main(results_file, qrel_file):
                         num_docs_in_set = num_docs_in_set - 1
 
                 if (num_rels_in_set == 0):
-                    print("Skipping topic: {0}".format(curr_topic_id))
+                    logger.info(f"Skipping topic: {curr_topic_id} due to zero rels in set")
                     skip_topic = True
                     continue
                 
@@ -97,20 +100,24 @@ def main(results_file, qrel_file):
                 v = get_value_and_check(qrh, seen_dict, topic_id, d)
                 if v is not None:
                     tar_ruler.update(v,v,action)
+        try:
+            if skip_topic is False:
+                tar_ruler.finalize()
+                tml.append(tar_ruler)
+                tar_ruler.print_scores()
+                scores |= tar_ruler.yield_scores()
 
-        if skip_topic is False:
-            tar_ruler.finalize()
-            tml.append(tar_ruler)
-            tar_ruler.print_scores()
-            scores |= tar_ruler.yield_scores()
+            agg_tar = TarAggRuler()
+            for tar in tml:
+                agg_tar.update(tar)
+            agg_tar.finalize()
+            agg_tar.print_scores()
+            scores |= agg_tar.yield_scores()
+            return scores
+        except Exception as e:
+            logger.error(e)
+            pass
 
-        agg_tar = TarAggRuler()
-        for tar in tml:
-            agg_tar.update(tar)
-        agg_tar.finalize()
-        agg_tar.print_scores()
-        scores |= agg_tar.yield_scores()
-        return scores
         
 
 
