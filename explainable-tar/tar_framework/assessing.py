@@ -19,11 +19,11 @@ class DataLoader(object):
         @param doc_text_file: stores the texts of document ids in doc_id_file, each line is a json format string, e.g. {"id": 1, "title": , "content": }
         """
         self.title = self.read_title(query_file)
-        self.did2label = self.read_qrels(qrel_file)
-        self.dids = self.read_doc_ids(doc_id_file)
-        self.did2text = self.read_doc_texts(doc_text_file)
+        self.document_id_to_label = self.read_qrels(qrel_file)
+        self.document_ids = self.read_doc_ids(doc_id_file)
+        self.document_id_to_text = self.read_doc_texts(doc_text_file)
 
-        self.pseudo_did = 'pseudo_did'
+        self.pseudo_document_id = 'pseudo_did'
         self.pseudo_text = self.title
         self.pseudo_label = REL
 
@@ -84,32 +84,32 @@ class DataLoader(object):
     def get_title(self):
         return self.title
 
-    def get_did2label(self):
-        return self.did2label
+    def get_document_id_to_label(self):
+        return self.document_id_to_label
 
-    def get_complete_pseudo_dids(self):
-        return self.dids + [self.pseudo_did]
+    def get_complete_document_ids_with_pseudo_document(self):
+        return self.document_ids + [self.pseudo_document_id]
 
-    def get_complete_pseudo_texts(self):
-        return [self.did2text[did] for did in self.dids] + [self.pseudo_text]
+    def get_complete_document_texts_with_pseudo_document(self):
+        return [self.document_id_to_text[did] for did in self.document_ids] + [self.pseudo_text]
 
-    def get_complete_dids(self):
-        return self.dids
+    def get_complete_document_ids(self):
+        return self.document_ids
 
     def get_complete_texts(self):
-        return [self.did2text[did] for did in self.dids]
+        return [self.document_id_to_text[did] for did in self.document_ids]
 
     def get_complete_labels(self):
-        return [self.did2label[did] for did in self.dids]
+        return [self.document_id_to_label[did] for did in self.document_ids]
 
     def get_rel_label(self, did):
-        return self.did2label[did]
+        return self.document_id_to_label[did]
 
-    def get_total_doc_num(self):
-        return len(self.dids)
+    def get_document_count(self):
+        return len(self.document_ids)
 
-    def get_total_rel_num(self):
-        return len(list(filter(lambda did: self.did2label[did] == REL, self.dids)))
+    def get_relevant_document_count(self):
+        return len(list(filter(lambda did: self.document_id_to_label[did] == REL, self.document_ids)))
 
 
 class Assessor(DataLoader):
@@ -119,75 +119,75 @@ class Assessor(DataLoader):
     def __init__(self,query_file, qrel_file, doc_id_file, doc_text_file):
         super().__init__(query_file, qrel_file, doc_id_file, doc_text_file)
 
-        self.assessed_dids = []
-        self.unassessed_dids = copy.copy(self.did2label)
-        self.assess_state = defaultdict(lambda: False)
+        self.assessed_document_ids = []
+        self.unassessed_document_ids = copy.copy(self.document_id_to_label)
+        self.assessment_state = defaultdict(lambda: False)
 
-    def get_training_data(self, temp_doc_num):
+    def get_training_data(self, number_of_training_docs):
         """
         Provide training data for training ranker
         :param type:
         :return:
         """
-        asdids = self.get_assessed_dids()
+        assessed_document_ids = self.get_assessed_document_ids()
 
-        population = self.get_unassessed_dids()
-        temp_doc_num = min(len(population), temp_doc_num)
-        temp_dids = list(np.random.choice(a=population, size=temp_doc_num, replace=False))  # unique random elements
+        population = self.get_unassessed_document_ids()
+        number_of_training_docs = min(len(population), number_of_training_docs)
+        temp_document_ids = list(np.random.choice(a=population, size=number_of_training_docs, replace=False))  # unique random elements
 
-        dids = [self.pseudo_did] + asdids + temp_dids
-        labels = [self.pseudo_label] + [self.did2label[did] for did in asdids] + len(temp_dids)*[0]
+        document_ids = [self.pseudo_document_id] + assessed_document_ids + temp_document_ids
+        labels = [self.pseudo_label] + [self.document_id_to_label[did] for did in assessed_document_ids] + len(temp_document_ids)*[0]
 
-        assert len(dids) == len(labels)
-        return dids, labels
+        assert len(document_ids) == len(labels)
+        return document_ids, labels
 
-    def update_assess(self, dids):
+    def update_assessment(self, document_ids):
 
-        for did in dids:
-            if self.assess_state[did] is False:
-                self.assessed_dids.append(did)
-                self.unassessed_dids.pop(did)
-                self.assess_state[did] = True
+        for document_id in document_ids:
+            if self.assessment_state[document_id] is False:
+                self.assessed_document_ids.append(document_id)
+                self.unassessed_document_ids.pop(document_id)
+                self.assessment_state[document_id] = True
         return
 
     def assess_state_check_func(self):
-        def func(did):
-            return self.assess_state[did]
+        def func(document_id):
+            return self.assessment_state[document_id]
         return func
 
-    def get_top_assessed_dids(self, ranked_dids, b):
-        cnt = 0
-        top_dids = []
-        for did in ranked_dids:
-            if self.assess_state[did] is False:
-                top_dids.append(did)
-                cnt += 1
-            if cnt >= b:
+    def get_top_assessed_document_ids(self, ranked_document_ids, threshold):
+        document_count = 0
+        top_document_ids = []
+        for document_id in ranked_document_ids:
+            if self.assessment_state[document_id] is False:
+                top_document_ids.append(document_id)
+                document_count += 1
+            if document_count >= threshold:
                 break
-        return top_dids
+        return top_document_ids
 
-    def get_assessed_dids(self):
-        return self.assessed_dids
+    def get_assessed_document_ids(self):
+        return self.assessed_document_ids
 
-    def get_assessed_num(self):
-        return len(self.assessed_dids)
+    def get_assessed_count(self):
+        return len(self.assessed_document_ids)
 
-    def get_assessed_rel_dids(self):
-        as_dids = self.get_assessed_dids()
-        return list(filter(lambda did: self.did2label[did] == REL, as_dids))
+    def get_assessed_relevant_document_ids(self):
+        assessed_document_ids = self.get_assessed_document_ids()
+        return list(filter(lambda document_id: self.document_id_to_label[document_id] == REL, assessed_document_ids))
 
-    def get_assessed_rel_num(self):
-        as_dids = self.get_assessed_dids()
-        return len(list(filter(lambda did: self.did2label[did] == REL, as_dids)))
+    def get_assessed_relevant_count(self):
+        assessed_document_ids = self.get_assessed_document_ids()
+        return len(list(filter(lambda document_id: self.document_id_to_label[document_id] == REL, assessed_document_ids)))
 
-    def get_unassessed_dids(self):
-        return list(self.unassessed_dids.keys())
+    def get_unassessed_document_ids(self):
+        return list(self.unassessed_document_ids.keys())
 
-    def get_unassessed_num(self):
-        return len(self.unassessed_dids.keys())
+    def get_unassessed_document_count(self):
+        return len(self.unassessed_document_ids.keys())
 
     def get_assessed_state(self):
-        return self.assess_state
+        return self.assessment_state
 
 
 if __name__ == '__main__':

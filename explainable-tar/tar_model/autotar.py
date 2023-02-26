@@ -80,12 +80,12 @@ def autotar_method(data_name, topic_set, topic_id,
 
     # loading data
     assessor = Assessor(query_file, qrel_file, doc_id_file, doc_text_file)
-    complete_dids = assessor.get_complete_dids()
-    complete_pseudo_dids = assessor.get_complete_pseudo_dids()
-    complete_pseudo_texts = assessor.get_complete_pseudo_texts()
+    complete_dids = assessor.get_complete_document_ids()
+    complete_pseudo_dids = assessor.get_complete_document_ids_with_pseudo_document()
+    complete_pseudo_texts = assessor.get_complete_document_texts_with_pseudo_document()
 
     if ranker_tfidf_corpus_files == []:
-        corpus_texts = assessor.get_complete_pseudo_texts()
+        corpus_texts = assessor.get_complete_document_texts_with_pseudo_document()
     else:  # this branch is only available for autotar, to study the effect of ranker
         def read_temp(files):
             for file in files:
@@ -93,14 +93,14 @@ def autotar_method(data_name, topic_set, topic_id,
                     yield text
 
         corpus_texts = read_temp(ranker_tfidf_corpus_files)
-    did2label = assessor.get_did2label()
-    total_true_r = assessor.get_total_rel_num()
-    total_num = assessor.get_total_doc_num()
+    did2label = assessor.get_document_id_to_label()
+    total_true_r = assessor.get_relevant_document_count()
+    total_num = assessor.get_document_count()
 
     # preparing document features
     ranker = Ranker(model_type=classifier, random_state=random_state, min_df=min_df, C=C)
     # ranker.set_did_2_feature(dids=complete_pseudo_dids, texts=complete_pseudo_texts, corpus_texts=corpus_texts)
-    ranker.set_did_2_feature(dids=complete_pseudo_dids, texts=complete_pseudo_texts, corpus_texts=corpus_texts, vectorizer_type=vectorizer_type, corpus_name=data_name, vectorizer_params=vectorizer_params)
+    ranker.set_document_ids_to_features(dids=complete_pseudo_dids, texts=complete_pseudo_texts, corpus_texts=corpus_texts, vectorizer_type=vectorizer_type, corpus_name=data_name, vectorizer_params=vectorizer_params)
     ranker.set_features_by_name('complete_dids', complete_dids)
 
     start_time = datetime.now()
@@ -121,7 +121,7 @@ def autotar_method(data_name, topic_set, topic_id,
             LOGGER.info(f'TAR: iteration={t}')
 
             train_dids, train_labels = assessor.get_training_data(temp_doc_num)
-            train_features = ranker.get_feature_by_did(train_dids)
+            train_features = ranker.get_feature_by_document_ids(train_dids)
             ranker.train_sync(train_features, train_labels)
 
             test_features = ranker.get_features_by_name('complete_dids')
@@ -131,13 +131,13 @@ def autotar_method(data_name, topic_set, topic_id,
             ranked_dids, scores = zip(*zipped)
 
             # cutting off instead of sampling
-            selected_dids = assessor.get_top_assessed_dids(ranked_dids, batch_size)
-            assessor.update_assess(selected_dids)
+            selected_dids = assessor.get_top_assessed_document_ids(ranked_dids, batch_size)
+            assessor.update_assessment(selected_dids)
 
             # statistics
-            sampled_num = assessor.get_assessed_num()
+            sampled_num = assessor.get_assessed_count()
             sampled_percentage = sampled_num/total_num
-            running_true_r = assessor.get_assessed_rel_num()
+            running_true_r = assessor.get_assessed_relevant_count()
             running_true_recall = running_true_r / float(total_true_r)
             ap = calculate_ap(did2label, ranked_dids)
 
@@ -169,7 +169,7 @@ def autotar_method(data_name, topic_set, topic_id,
 
     stop_time = datetime.now()
     # tar run file
-    shown_dids = assessor.get_assessed_dids()
+    shown_dids = assessor.get_assessed_document_ids()
     check_func = assessor.assess_state_check_func()
     tar_run_file = name_tar_run_file(data_name=data_name, model_name=model_name, topic_set=topic_set, exp_id=random_state, topic_id=topic_id)
     LOGGER.info(f'writing results to: {tar_run_file}')
@@ -257,7 +257,7 @@ if __name__ == '__main__':
         except Exception as e:
             trace_back_string = get_traceback_string(e)
             LOGGER.error(f"Error <{e}>\ntraceback: {trace_back_string}\nrunning experiment {param_group_name}\ncontinuing to next experiment...")
-        # tornado.ioloop.IOLoop.instance().start()
+
         LOGGER.info(f"experiment complete: {param_group_name}")
         gc.collect()
         gc.collect()

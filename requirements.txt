@@ -15,6 +15,6 @@ matplotlib
 fabric
 python-dotenv
 tornado
-dask
+dask[complete]
 dask[distributed]
 jsonpickle

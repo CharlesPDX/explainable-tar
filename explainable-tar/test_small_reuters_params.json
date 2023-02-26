@@ -1,0 +1,92 @@
+{
+    "experiments": {
+        "famdg-reuters21578-earn-tf_idf-2022_08_29T08:58:21.115951": {
+            "corpus_params": {
+                "corpus_name": "reuters21578",
+                "collection_name": "reuters21578",
+                "topic_id": "earn",
+                "topic_set": "earn"
+            },
+            "vectorizer_params": null,
+            "vectorizer_type": {
+                "__enum__": "VectorizerType.tf_idf"
+            },
+            "run_notes": "vigilance 0.95 with beta 1.0",
+            "fuzzy_artmap_params": {
+                "rho_a_bar": 0.95,
+                "number_of_mapping_nodes": 50,
+                "model_type": "famdg",
+                "max_nodes": null,
+                "committed_beta": 1.0,
+                "active_learning_mode": "random",
+                "scheduler_address": "localhost:8786"
+            }
+        },
+        "famdg-reuters21578-earn-glove-2022_08_29T08:58:21.115974": {
+            "corpus_params": {
+                "corpus_name": "reuters21578",
+                "collection_name": "reuters21578",
+                "topic_id": "earn",
+                "topic_set": "earn"
+            },
+            "vectorizer_params": null,
+            "vectorizer_type": {
+                "__enum__": "VectorizerType.glove"
+            },
+            "run_notes": "vigilance 0.95 with beta 1.0",
+            "fuzzy_artmap_params": {
+                "rho_a_bar": 0.95,
+                "number_of_mapping_nodes": 50,
+                "model_type": "famdg",
+                "max_nodes": null,
+                "committed_beta": 1.0,
+                "active_learning_mode": "ranked",
+                "scheduler_address": "localhost:8786"
+            }
+        },
+        "famdg-reuters21578-earn-word2vec-2022_08_29T08:58:21.115980": {
+            "corpus_params": {
+                "corpus_name": "reuters21578",
+                "collection_name": "reuters21578",
+                "topic_id": "earn",
+                "topic_set": "earn"
+            },
+            "vectorizer_params": null,
+            "vectorizer_type": {
+                "__enum__": "VectorizerType.word2vec"
+            },
+            "run_notes": "vigilance 0.95 with beta 1.0",
+            "fuzzy_artmap_params": {
+                "rho_a_bar": 0.95,
+                "number_of_mapping_nodes": 3200,
+                "model_type": "famdg",
+                "max_nodes": null,
+                "committed_beta": 1.0,
+                "active_learning_mode": "ranked",
+                "scheduler_address": "localhost:8786"
+            }
+        },
+        "famdg-reuters21578-earn-sbert-2022_08_29T08:58:21.115985": {
+            "corpus_params": {
+                "corpus_name": "reuters21578",
+                "collection_name": "reuters21578",
+                "topic_id": "earn",
+                "topic_set": "earn"
+            },
+            "vectorizer_params": null,
+            "vectorizer_type": {
+                "__enum__": "VectorizerType.sbert"
+            },
+            "run_notes": "vigilance 0.95 with beta 1.0",
+            "fuzzy_artmap_params": {
+                "rho_a_bar": 0.95,
+                "number_of_mapping_nodes": 6500,
+                "model_type": "famdg",
+                "max_nodes": null,
+                "committed_beta": 1.0,
+                "active_learning_mode": "ranked",
+                "scheduler_address": "localhost:8786"
+            }
+        }
+    }
+}

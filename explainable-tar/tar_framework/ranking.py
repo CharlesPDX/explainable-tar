@@ -34,11 +34,11 @@ import gensim.downloader as gensim_api
 
 import jsonpickle
 
-from fuzzy_artmap import FuzzyArtMap
-from fuzzy_artmap_gpu import FuzzyArtMapGpu
-from fuzzy_artmap_distributed import FuzzyArtmapDistributed
-from fuzzy_artmap_distributed_gpu import FuzzyArtmapGpuDistributed
-from utils import PARENT_DIR, LOGGER, REL
+from tar_framework.fuzzy_artmap import FuzzyArtMap
+from tar_framework.fuzzy_artmap_gpu import FuzzyArtMapGpu
+from tar_framework.fuzzy_artmap_distributed import FuzzyArtmapDistributed
+from tar_framework.fuzzy_artmap_distributed_gpu import FuzzyArtmapGpuDistributed
+from tar_framework.utils import PARENT_DIR, LOGGER, REL
 
 
 def preprocess_text(text):
@@ -116,8 +116,8 @@ class Ranker(object):
         self.random_state = random_state
         self.min_df = min_df
         self.C = C
-        self.did2feature = {}
-        self.name2features = {}
+        self.features_by_document_id = {}
+        self.features_by_name = {}
         self.rho_a_bar = rho_a_bar
         self.number_of_mapping_nodes = number_of_mapping_nodes
         self.committed_beta = committed_beta
@@ -128,7 +128,7 @@ class Ranker(object):
         self.missing_tokens = []
         self.scheduler_address = scheduler_address
         self.max_nodes = max_nodes
-        self.set_did_2_feature_params = None
+        self.set_document_ids_to_features_parameters = None
 
         if self.model_type == 'lr':
             self.model = LogisticRegression(solver='lbfgs', random_state=self.random_state, C=self.C, max_iter=10000)
@@ -175,8 +175,8 @@ class Ranker(object):
                 pickle.dump({'features': features}, pickled_corpus_file, protocol=pickle.HIGHEST_PROTOCOL)
         return features
 
-    def set_did_2_feature(self, dids, texts, corpus_texts, vectorizer_type: VectorizerType = VectorizerType.tf_idf, corpus_name=None, vectorizer_params=None):        
-        self.set_did_2_feature_params = (dids, vectorizer_type, corpus_name, vectorizer_params)
+    def set_document_ids_to_features(self, dids, texts, corpus_texts, vectorizer_type: VectorizerType = VectorizerType.tf_idf, corpus_name=None, vectorizer_params=None):        
+        self.set_document_ids_to_features_parameters = (dids, vectorizer_type, corpus_name, vectorizer_params)
 
         if vectorizer_type.name == VectorizerType.tf_idf.name:
             if not vectorizer_params:
@@ -193,7 +193,7 @@ class Ranker(object):
         elif vectorizer_type.name == VectorizerType.glove.name:
             vectorizer = lambda : self._glove_vectorize_documents(texts)
         elif vectorizer_type.name == VectorizerType.sbert.name:
-            vectorizer = lambda : self.sbert_vectorize_documents(texts)
+            vectorizer = lambda : self._sbert_vectorize_documents(texts)
         elif vectorizer_type.name == VectorizerType.word2vec.name:
             vectorizer = lambda : self._word2vec_vectorize_documents(texts)        
 
@@ -214,9 +214,9 @@ class Ranker(object):
                 except Exception as e:                    
                     raise e
             if len(feature.shape) == 1:
-                self.did2feature[did] = feature[:, np.newaxis]
+                self.features_by_document_id[did] = feature[:, np.newaxis]
             else:
-                self.did2feature[did] = feature
+                self.features_by_document_id[did] = feature
         
         if vectorizer_type == VectorizerType.glove or vectorizer_type == VectorizerType.word2vec:
             unique_missing_tokens = set(self.missing_tokens)
@@ -224,10 +224,10 @@ class Ranker(object):
             self.missing_tokens.clear()
         
         # TODO: figure out better shape logging
-        LOGGER.info(f'Ranker.set_feature_dict is done. - {len(self.did2feature):,} documents, {self.did2feature[dids[0]].shape} dimensions')
+        LOGGER.info(f'Ranker.set_feature_dict is done. - {len(self.features_by_document_id):,} documents, {self.features_by_document_id[dids[0]].shape} dimensions')
         return
 
-    def sbert_vectorize_documents(self, texts):
+    def _sbert_vectorize_documents(self, texts):
         if torch.cuda.is_available():
             model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2', device='cuda')
         else:
@@ -259,7 +259,7 @@ class Ranker(object):
 
     def _glove_vectorize_documents(self, texts):
         if not self.glove_model:
-            self._load_glove_model(os.path.join(os.getcwd(), 'autostop/tar_framework/glove/glove.6B.300d.txt'))
+            self._load_glove_model(os.path.join(os.getcwd(), '../glove/glove.6B.300d.txt'))
 
         vectorized_documents = np.zeros((len(texts), 300))
         for text_index, text in enumerate(texts):
@@ -298,21 +298,21 @@ class Ranker(object):
         LOGGER.info("Scaling complete")
 
 
-    def get_feature_by_did(self, dids):
-        features = scipy.sparse.vstack([self.did2feature[did] for did in dids])
+    def get_feature_by_document_ids(self, document_ids):
+        features = scipy.sparse.vstack([self.features_by_document_id[document_id] for document_id in document_ids])
         return features
 
-    def set_features_by_name(self, name, dids):
-        features = scipy.sparse.vstack([self.did2feature[did] for did in dids])
-        self.name2features[name] = features
+    def set_features_by_name(self, name, document_ids):
+        features = scipy.sparse.vstack([self.features_by_document_id[document_id] for document_id in document_ids])
+        self.features_by_name[name] = features
         return
 
     def get_features_by_name(self, name):
-        return self.name2features[name]
+        return self.features_by_name[name]
 
     async def cache_corpus_in_model(self, document_ids):
         if self.model_type in self.fam_models:
-            number_of_features = self.did2feature[document_ids[0]].shape[1]
+            number_of_features = self.features_by_document_id[document_ids[0]].shape[1]
 
         if self.model_type == "fam":
             if not self.model:
@@ -329,10 +329,10 @@ class Ranker(object):
                 await self.model.initialize_workers()
 
         if self.model_type in self.fam_models:
-            corpus_features = self.get_feature_by_did(document_ids)
+            corpus_features = self.get_feature_by_document_ids(document_ids)
             document_index_mapping = {document_id: index for index, document_id in enumerate(document_ids)}
             if self.model_type == "famdg":
-                await self.model.cache_corpus(self.set_did_2_feature_params, document_index_mapping)
+                await self.model.cache_corpus(self.set_document_ids_to_features_parameters, document_index_mapping)
             else:
                 self.model.cache_corpus(corpus_features, document_index_mapping)
         else:
@@ -417,11 +417,11 @@ class Ranker(object):
 
     async def predict_with_doc_id(self, doc_ids):
         if self.model_type != "famdg":
-            probs = self.model.predict_proba(doc_ids)
+            document_relevance_probabilities = self.model.predict_proba(doc_ids)
         else:
-            probs = await self.model.predict_proba(doc_ids)
-        if probs.shape[0] != 0:
-            scores = probs[:, np.r_[0:1, 2:3]]
+            document_relevance_probabilities = await self.model.predict_proba(doc_ids)
+        if document_relevance_probabilities.shape[0] != 0:
+            scores = document_relevance_probabilities[:, np.r_[0:1, 2:3]]
         else:
             scores = []
         return scores

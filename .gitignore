@@ -1,6 +1,6 @@
 images/
 .env*
-# auto-stop-tar results
+# intermediate results
 ret/
 
 # Exclude models
@@ -24,9 +24,6 @@ data/reuters-rcv1/
 data/tr/
 data/legal/
 data/rcv*
-
-# glove models
-autostop/tar_framework/glove/
 
 # dask locks
 dask-worker-space/

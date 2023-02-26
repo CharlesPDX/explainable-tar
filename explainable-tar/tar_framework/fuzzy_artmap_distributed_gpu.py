@@ -492,9 +492,9 @@ class FuzzyArtMapGpuWorker:
         self.document_index_mapping = document_index_mapping
         ranker = Ranker("famdg")
         logger.info(f"initializing features")
-        ranker.set_did_2_feature(ranker_params[0], None, None, ranker_params[1], ranker_params[2], ranker_params[3])
+        ranker.set_document_ids_to_features(ranker_params[0], None, None, ranker_params[1], ranker_params[2], ranker_params[3])
         logger.info(f"getting features")
-        corpus = ranker.get_feature_by_did(document_index_mapping.keys())
+        corpus = ranker.get_feature_by_document_ids(document_index_mapping.keys())
         logger.info(f"complement encoding")
         self.corpus = FuzzyArtMapGpuWorker.complement_encode(torch.tensor(corpus.toarray(), device="cpu", dtype=torch.float))
         del corpus

@@ -1,14 +1,7 @@
 # coding=utf-8
-# from asyncio.log import logger
 from datetime import datetime
-# from logging import Logger
 import sys
 import os
-sys.path.insert(0, os.path.join(os.getcwd(), 'autostop'))
-sys.path.insert(0, os.path.join(os.getcwd(), 'autostop/trec_eval/measures'))
-sys.path.insert(0, os.path.join(os.getcwd(), 'autostop/trec_eval/seeker'))
-sys.path.insert(0, os.path.join(os.getcwd(), 'autostop/tar_framework'))
-print(sys.path)
 
 import traceback
 import gc
@@ -17,7 +10,6 @@ import argparse
 
 import json
 import csv
-# import math
 import random
 import numpy as np
 from operator import itemgetter
@@ -25,11 +17,10 @@ from operator import itemgetter
 import keepsake
 import tornado.ioloop
 
-# from scipy.stats import norm
-# from sklearn.preprocessing import MinMaxScaler
 from tar_framework.assessing import Assessor
 from tar_framework.ranking import Ranker, VectorizerType
-from tar_model.utils import *
+from metric_utilities import *
+from parameter_utilities import *
 from tar_framework.utils import *
 
 from trec_eval.tar_eval import main as eval
@@ -68,21 +59,19 @@ async def fuzzy_artmap_method(data_name, topic_set, topic_id,
     # np.random.seed(random_state)
 
     # model named with its configuration
-    model_name = 'fam' + '-'    
-    model_name += 'sp' + str(stopping_percentage) + '-'
-    model_name += 'sr' + str(stopping_recall) + '-'
-
-    LOGGER.info('Model configuration: {}.'.format(model_name))
-    LOGGER.debug('Model configuration: {}.'.format(model_name))
+    model_name = f"fam-sp{str(stopping_percentage)}-sr-{str(stopping_recall)}"
+    
+    LOGGER.info(f"Model configuration: {model_name}.")
+    
     # profiler.enable()
     # loading data
     assessor = Assessor(query_file, qrel_file, doc_id_file, doc_text_file)
-    complete_dids = assessor.get_complete_dids()
-    complete_pseudo_dids = assessor.get_complete_pseudo_dids()
-    complete_pseudo_texts = assessor.get_complete_pseudo_texts()
-    did2label = assessor.get_did2label()
-    total_true_r = assessor.get_total_rel_num()
-    total_num = assessor.get_total_doc_num()
+    complete_dids = assessor.get_complete_document_ids()
+    complete_pseudo_dids = assessor.get_complete_document_ids_with_pseudo_document()
+    complete_pseudo_texts = assessor.get_complete_document_texts_with_pseudo_document()
+    did2label = assessor.get_document_id_to_label()
+    total_true_r = assessor.get_relevant_document_count()
+    total_num = assessor.get_document_count()
 
     # local parameters
     stopping = False
@@ -93,8 +82,8 @@ async def fuzzy_artmap_method(data_name, topic_set, topic_id,
 
     # preparing document features
     ranker = Ranker(**classifier_params)
-    ranker.set_did_2_feature(dids=complete_pseudo_dids, texts=complete_pseudo_texts, corpus_texts=complete_pseudo_texts, vectorizer_type=vectorizer_type, corpus_name=data_name, vectorizer_params=vectorizer_params)
-    ranker.set_features_by_name('complete_dids', complete_dids)
+    ranker.set_document_ids_to_features(dids=complete_pseudo_dids, texts=complete_pseudo_texts, corpus_texts=complete_pseudo_texts, vectorizer_type=vectorizer_type, corpus_name=data_name, vectorizer_params=vectorizer_params)
+    ranker.set_features_by_name("complete_dids", complete_dids)
     LOGGER.info("Caching corpus")
     await ranker.cache_corpus_in_model(complete_dids)
     LOGGER.info("Caching complete")
@@ -105,14 +94,14 @@ async def fuzzy_artmap_method(data_name, topic_set, topic_id,
     # starting the TAR process
     start_time = datetime.now()
     # perform initial model training, with some positive examples
-    shuffled_doc_ids = random.sample(assessor.get_complete_dids(), len(assessor.get_complete_dids()))
-    initial_positive_doc_ids = list(filter(lambda doc_id: assessor.did2label[doc_id] == REL, shuffled_doc_ids))[:10]
-    initial_negative_doc_ids = list(filter(lambda doc_id: assessor.did2label[doc_id] != REL, shuffled_doc_ids))[:90]
+    shuffled_doc_ids = random.sample(assessor.get_complete_document_ids(), len(assessor.get_complete_document_ids()))
+    initial_positive_doc_ids = list(filter(lambda doc_id: assessor.document_id_to_label[doc_id] == REL, shuffled_doc_ids))[:10]
+    initial_negative_doc_ids = list(filter(lambda doc_id: assessor.document_id_to_label[doc_id] != REL, shuffled_doc_ids))[:90]
     initial_training_doc_ids = list(initial_positive_doc_ids)
     initial_training_doc_ids.extend(initial_negative_doc_ids)
     initial_training_labels = list(len(initial_positive_doc_ids) * [1])
     initial_training_labels.extend(len(initial_negative_doc_ids) * [0])
-    initial_training_features = ranker.get_feature_by_did(initial_training_doc_ids)
+    initial_training_features = ranker.get_feature_by_document_ids(initial_training_doc_ids)
     
     LOGGER.info(f"starting initial training")
     await ranker.train(initial_training_features, initial_training_labels, initial_training_doc_ids)
@@ -122,7 +111,7 @@ async def fuzzy_artmap_method(data_name, topic_set, topic_id,
     interaction_file = name_interaction_file(data_name=data_name, model_name=model_name, topic_set=topic_set,
                                              exp_id=random_state, topic_id=topic_id)
     def write_results():
-        shown_dids = assessor.get_assessed_dids()
+        shown_dids = assessor.get_assessed_document_ids()
         check_func = assessor.assess_state_check_func()
         tar_run_file = name_tar_run_file(data_name=data_name, model_name=model_name, topic_set=topic_set, exp_id=random_state, topic_id=topic_id)
         with open(tar_run_file, 'w', encoding='utf8') as f:
@@ -138,9 +127,7 @@ async def fuzzy_artmap_method(data_name, topic_set, topic_id,
             t += 1
             LOGGER.info(f'TAR: iteration={t}')
 
-            unassessed_document_ids = assessor.get_unassessed_dids()
-            # test_features = ranker.get_feature_by_did(unassessed_document_ids)
-            # scores = ranker.predict_with_doc_id(test_features, unassessed_document_ids)
+            unassessed_document_ids = assessor.get_unassessed_document_ids()
             try:
                 scores = await ranker.predict_with_doc_id(unassessed_document_ids)
             except Exception as e:
@@ -162,20 +149,17 @@ async def fuzzy_artmap_method(data_name, topic_set, topic_id,
                 ranked_dids = []
             
             # cutting off instead of sampling
-            selected_dids = assessor.get_top_assessed_dids(ranked_dids, batch_size)
-            assessor.update_assess(selected_dids)
+            selected_dids = assessor.get_top_assessed_document_ids(ranked_dids, batch_size)
+            assessor.update_assessment(selected_dids)
 
             # statistics
-            sampled_num = assessor.get_assessed_num()
+            sampled_num = assessor.get_assessed_count()
             sampled_percentage = sampled_num/total_num
-            running_true_r = assessor.get_assessed_rel_num()
+            running_true_r = assessor.get_assessed_relevant_count()
             running_true_recall = 0
             if total_true_r != 0:
                 running_true_recall = running_true_r / float(total_true_r)
             ap = calculate_ap(did2label, ranked_dids)
-
-            # update parameters
-            # batch_size += math.ceil(batch_size / 10)
 
             # debug: writing values
             csvwriter.writerow((t, batch_size, total_num, sampled_num, total_true_r, running_true_r, ap, running_true_recall, sampled_percentage))
@@ -202,7 +186,7 @@ async def fuzzy_artmap_method(data_name, topic_set, topic_id,
             if not stopping:
                 LOGGER.info("Starting assessed document training")
                 assessed_labels = [assessor.get_rel_label(doc_id) for doc_id in selected_dids]
-                assesed_features = ranker.get_feature_by_did(selected_dids)
+                assesed_features = ranker.get_feature_by_document_ids(selected_dids)
                 try:
                     await ranker.train(assesed_features, assessed_labels, selected_dids)
                     await ranker.remove_docs_from_cache(selected_dids)
@@ -289,10 +273,7 @@ if __name__ == '__main__':
         git_revision_hash = "unavailable"
         git_revision_short_hash = "unavailable"
 
-    # tf_idf_params = make_tf_idf_vectorizer_params(0.001, 0.9, 'english')
-    # vectorizer_type = VectorizerType.tf_idf
-    # x = tf_idf_params
-    params_file_location = os.path.join(os.getcwd(), "autostop/tar_model", args.params)
+    params_file_location = os.path.join(os.getcwd(), "explainable-tar", args.params)
     with open(params_file_location) as params_file:
         params = json.load(params_file, object_hook=as_enum)
         experiments = params["experiments"]
@@ -318,9 +299,6 @@ if __name__ == '__main__':
                                             "git_revision_hash": git_revision_hash,
                                             "git_short_hash": git_revision_short_hash
                                            })
-        # if fuzzy_artmap_params["model_type"] != "famdg":
-        #     fuzzy_artmap_method(**corpus_params, vectorizer_type=experiment_params["vectorizer_type"], vectorizer_params=experiment_params["vectorizer_params"], classifier_params=fuzzy_artmap_params)
-        # else:
         try:
             tornado.ioloop.IOLoop.current().run_sync(main)
         except tornado.iostream.StreamClosedError as stream_error:
@@ -330,11 +308,9 @@ if __name__ == '__main__':
         except Exception as e:
             trace_back_string = get_traceback_string(e)
             LOGGER.error(f"Error <{e}>\ntraceback: {trace_back_string}\nrunning experiment {param_group_name}\ncontinuing to next experiment...")
-        # tornado.ioloop.IOLoop.instance().start()
         LOGGER.info(f"experiment complete: {param_group_name}")
         gc.collect()
         gc.collect()
-        # fuzzy_artmap_method(data_name, topic_id, topic_set, query_file, qrel_file, doc_id_file, doc_text_file)
     run_completion_time = datetime.now()
     run_duration = run_completion_time - run_start_time
     LOGGER.info(f"run completed\nstarted at {run_start_time}\nended at: {run_completion_time}\nelapsed: {run_duration}")
