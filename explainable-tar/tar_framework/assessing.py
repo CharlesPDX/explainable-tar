@@ -1,12 +1,11 @@
 # coding=utf-8
 import sys
 import os
-sys.path.insert(0, os.path.join(os.getcwd(), 'autostop'))
 import json
 import copy
 import numpy as np
 from collections import defaultdict
-from tar_framework.utils import *
+from tar_framework.run_utilities import LOGGER, REL
 
 
 class DataLoader(object):

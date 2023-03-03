@@ -70,8 +70,12 @@
     ],
     "compounds": [
         {
-            "name": "Run Fuzzy ARTMAP TAR",
+            "name": "Run Distributed Fuzzy ARTMAP TAR",
             "configurations": ["Python: Run Registrar", "Python: fuzzy_artmap_tar", "Python: fuzzy_artmap_tar worker"]
+        },
+        {
+            "name": "Run Local Fuzzy ARTMAP TAR",
+            "configurations": ["Python: fuzzy_artmap_tar"]
         }
     ]
 }

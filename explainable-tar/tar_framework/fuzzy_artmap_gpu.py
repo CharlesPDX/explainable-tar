@@ -10,7 +10,7 @@ import numpy as np
 import torch
 from scipy.sparse.csr import csr_matrix
 
-from .utils import *
+from tar_framework.run_utilities import LOGGER
 
 
 class FuzzyArtMapGpu:

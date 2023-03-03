@@ -7,6 +7,7 @@ import traceback
 import gc
 import subprocess
 import argparse
+from enum import Enum
 
 import json
 import csv
@@ -19,9 +20,9 @@ import tornado.ioloop
 
 from tar_framework.assessing import Assessor
 from tar_framework.ranking import Ranker, VectorizerType
-from metric_utilities import *
-from parameter_utilities import *
-from tar_framework.utils import *
+from metric_utilities import MetricType, calculate_ap
+from parameter_utilities import make_file_params
+from tar_framework.run_utilities import LOGGER, name_tar_run_file, write_tar_run_file, name_interaction_file, REL
 
 from trec_eval.tar_eval import main as eval
 

@@ -38,7 +38,7 @@ from tar_framework.fuzzy_artmap import FuzzyArtMap
 from tar_framework.fuzzy_artmap_gpu import FuzzyArtMapGpu
 from tar_framework.fuzzy_artmap_distributed import FuzzyArtmapDistributed
 from tar_framework.fuzzy_artmap_distributed_gpu import FuzzyArtmapGpuDistributed
-from tar_framework.utils import PARENT_DIR, LOGGER, REL
+from tar_framework.run_utilities import PARENT_DIR, LOGGER, REL
 
 
 def preprocess_text(text):

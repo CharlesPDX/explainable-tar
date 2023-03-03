@@ -9,7 +9,7 @@ from typing import List
 import numpy as np
 from scipy.sparse.csr import csr_matrix
 
-from .utils import *
+from tar_framework.run_utilities import LOGGER
 
 
 class FuzzyArtMap:
