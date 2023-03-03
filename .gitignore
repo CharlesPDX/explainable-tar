@@ -4,7 +4,7 @@ images/
 ret/
 
 # Exclude models
-*.pt
+models/*.pt
 
 # Exclude saved, featurized data
 data/pickels/

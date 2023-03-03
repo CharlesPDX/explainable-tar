@@ -55,7 +55,7 @@ class FuzzyArtmapGpuDistributed:
                  committed_beta = 0.75, 
                  active_learning_mode = "ranked", 
                  batch_size = 100, 
-                 mode: ProcessingMode = ProcessingMode.distributed, 
+                 mode: ProcessingMode = ProcessingMode.local, 
                  use_vector = False):
         self.rho_a_bar = rho_a_bar  # Baseline vigilance for ARTa, in range [0,1]
         self.committed_beta = committed_beta
@@ -111,7 +111,6 @@ class FuzzyArtmapGpuDistributed:
         if self.mode == ProcessingMode.distributed:
             io_loop = tornado.ioloop.IOLoop.current().asyncio_loop
             remote_fit = io_loop.create_task(self.client.fit([input_vectors, class_vectors, doc_ids]))
-            # await asyncio.gather(remote_fit)
             local_fit = io_loop.run_in_executor(None, self.training_fuzzy_artmap.fit, input_vectors, class_vectors, doc_ids)
             await asyncio.gather(remote_fit, local_fit)
         elif self.mode == ProcessingMode.local:
@@ -430,7 +429,7 @@ class FuzzyArtMapGpuWorker:
         model_timestamp = datetime.now().isoformat().replace("-", "_").replace(":", "_").replace(".", "_")
         cleaned_descriptor = descriptor.replace("-", "_").replace(":", "_").replace(".", "_")
         model_path = f"models/famgd_{model_timestamp}_{cleaned_descriptor}.pt"
-        torch.save((self.weight_a, self.weight_ab), model_path)
+        torch.save((self.weight_a, self.weight_ab, self.committed_nodes), model_path)
         return model_path
 
 
