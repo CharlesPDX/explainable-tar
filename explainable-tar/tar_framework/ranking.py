@@ -36,7 +36,7 @@ import jsonpickle
 
 from tar_framework.fuzzy_artmap import FuzzyArtMap
 from tar_framework.fuzzy_artmap_gpu import FuzzyArtMapGpu
-from tar_framework.fuzzy_artmap_distributed import FuzzyArtmapDistributed
+# from tar_framework.fuzzy_artmap_distributed import FuzzyArtmapDistributed
 from tar_framework.fuzzy_artmap_distributed_gpu import FuzzyArtmapGpuDistributed
 from tar_framework.run_utilities import PARENT_DIR, LOGGER, REL
 
@@ -322,7 +322,8 @@ class Ranker(object):
                 self.model = FuzzyArtMapGpu(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, max_nodes=self.max_nodes)
         elif self.model_type == "famd":
             if not self.model:
-                self.model = FuzzyArtmapDistributed(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, scheduler_address=self.scheduler_address)
+                # self.model = FuzzyArtmapDistributed(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, scheduler_address=self.scheduler_address)
+                raise NotImplementedError("Removed dask-based distributed implementation")
         elif self.model_type == "famdg":
             if not self.model:
                 self.model = FuzzyArtmapGpuDistributed(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, scheduler_address=self.scheduler_address, max_nodes=self.max_nodes, committed_beta=self.committed_beta, active_learning_mode=self.active_learning_mode, batch_size=self.batch_size)
@@ -393,8 +394,9 @@ class Ranker(object):
             self.model = FuzzyArtMapGpu(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, max_nodes=self.max_nodes)
             model = self.model
         elif self.model_type == "famd" and not self.model:
-            self.model = FuzzyArtmapDistributed(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, scheduler_address=self.scheduler_address)
-            model = self.model
+            raise NotImplementedError("Removed dask-based distributed implementation")
+            # self.model = FuzzyArtmapDistributed(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, scheduler_address=self.scheduler_address)
+            # model = self.model
         elif self.model_type == "famdg" and not self.model:
             self.model = FuzzyArtmapGpuDistributed(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, scheduler_address=self.scheduler_address, max_nodes=self.max_nodes, committed_beta=self.committed_beta, active_learning_mode=self.active_learning_mode, batch_size=self.batch_size)
             model = self.model

@@ -15,6 +15,7 @@ matplotlib
 fabric
 python-dotenv
 tornado
-dask[complete]
-dask[distributed]
 jsonpickle
+umap-learn
+seaborn
+umap-learn[plot]
