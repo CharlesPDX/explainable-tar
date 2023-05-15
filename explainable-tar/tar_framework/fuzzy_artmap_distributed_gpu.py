@@ -399,11 +399,11 @@ class FuzzyArtMapGpuWorker:
             torch.divide(self.S_cache.transpose(0,1)[sub_indexes], self.choice_denominator, out=T)
             sorted_values, indices = torch.max(T, dim=1)
             for j, key in enumerate(sub_keys):
-                J = indices[j]
-                prediction = self.weight_ab[int(J), ]
+                J = int(indices[j])
+                prediction = self.weight_ab[J, ]
                 if prediction[0].item():
                     membership_degree = sorted_values[j]
-                    predictions.append((membership_degree.item(), 0, key))
+                    predictions.append((membership_degree.item(), 0, key, J))
                     if self.active_learning_mode == "random" and len(predictions) >= self.batch_size:
                         return predictions
             # self.profiler.disable()

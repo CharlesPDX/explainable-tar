@@ -17,7 +17,7 @@ data/pickels/
 data/20newsgroups/
 
 # Reuters-21578 TREC formatted data
-data/reuters21578/
+# data/reuters21578/
 
 data/rcv1/
 data/reuters-rcv1/

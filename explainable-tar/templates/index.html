@@ -1,0 +1,34 @@
+{% extends 'base.html' %}
+
+{% block header %}
+  <h1>{% block title %}Explainable Fuzzy ARTMAP TAR Demo{% endblock %}</h1>
+{% endblock %}
+
+{% block content %}
+    <script src={{ url_for('static', filename='js/viewmodel.js') }}></script>
+    <p>
+        Corpus format: <select data-bind="options: representations, enable: firstRun, value: selectedRepresentation"></select>
+        <label>Seed query:</label>
+        <input id="seed_keywords" data-bind="value: seedKeywords, enable: firstRun" type="text"/>
+        <button data-bind='click: seedSearch, enable: firstRun'>Search</button>
+        <button data-bind='click: reset, disable: firstRun'>reset</button>
+    </p>
+
+    <p>
+        <label>Document:</label><textarea id="doc_body" rows="12" cols="60" readonly="True" data-bind="value: currentDocument"></textarea>
+    </p>
+    <p>
+        <input type="button" value="Relevant" data-bind='click: scoreRelevant, enable: relevanceEnabled'>
+        <input type="button" value="Not Relevant" data-bind='click: scoreNotRelevant, enable: relevanceEnabled'>
+        <span data-bind='visible: searching'>Searching for next document batch.</span>
+    </p>
+    <p>
+        <input type="button" value="Explain" data-bind='click: explain, enable: relevanceEnabled'>
+        <input type="button" value="Clear" data-bind='click: clear, enable: relevanceEnabled'>
+        <span data-bind='visible: gettingExplanation'>Getting explanation.</span>
+    </p>
+    <div>
+        <textarea id="explanation" rows="8" cols="48" readonly="True" data-bind='value: explanation'></textarea>
+    </div>
+
+{% endblock %}

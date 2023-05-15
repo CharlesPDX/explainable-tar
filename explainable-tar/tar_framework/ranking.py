@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import pickle
 from typing import Any, Dict
+from itertools import islice
 
 import pyltr
 import scipy
@@ -53,7 +54,12 @@ def preprocess_text(text):
     # remove punctuation
     text = re.sub('[!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~]+', ' ', text)
     # tokenize
-    tokens = word_tokenize(text)
+    try:
+        tokens = word_tokenize(text)
+    except LookupError as e:
+        LOGGER.info(f"Tokenizer corpus not found, downloading - {e}")
+        nltk.download("punkt")
+        tokens = word_tokenize(text)
     # lowercase & filter stopwords
     filtered = [token for token in tokens if token not in ENGLISH_STOP_WORDS]
     # # stem
@@ -86,16 +92,33 @@ def preprocess_without_stemming(text):
 
     return filtered
 
+def _pickle_or_get_tokens(complete_texts):
+    pickled_corpus_file_name = f"reuters_tokens.pkl"
+    pickled_corpus = os.path.join(PARENT_DIR, 'data', 'pickels', pickled_corpus_file_name)
+    try:
+        with open(pickled_corpus, 'rb') as pickled_corpus_file:
+            tokenized_texts = pickle.load(pickled_corpus_file)
+    except FileNotFoundError as e:
+        pickels_path = os.path.join(PARENT_DIR, 'data', 'pickels')
+        if not Path(pickels_path).exists():
+            os.mkdir(pickels_path)
+        LOGGER.info(e)
+        tokenized_texts = [preprocess_text(doc) for doc in complete_texts]
+        tokenized_texts = list(tokenized_texts)
+        with open(pickled_corpus, 'wb') as pickled_corpus_file:
+            pickle.dump(tokenized_texts, pickled_corpus_file, protocol=pickle.HIGHEST_PROTOCOL)
+    return tokenized_texts
+
 
 def bm25_okapi_rank(complete_dids, complete_texts, query):
-    tokenized_texts = [preprocess_text(doc) for doc in complete_texts]
+    tokenized_texts = _pickle_or_get_tokens(complete_texts)# [preprocess_text(doc) for doc in complete_texts]
     tokenized_query = preprocess_text(query)
 
     bm25 = BM25Okapi(tokenized_texts)
     scores = bm25.get_scores(tokenized_query)
 
     did_scores = sorted(zip(complete_dids, scores), key=lambda x: x[1], reverse=True)
-    ranked_dids, ranked_scores = zip(*did_scores)
+    ranked_dids, ranked_scores = islice(zip(*did_scores), 10)
 
     return list(ranked_dids), list(ranked_scores)
 
@@ -423,7 +446,7 @@ class Ranker(object):
         else:
             document_relevance_probabilities = await self.model.predict_proba(doc_ids)
         if document_relevance_probabilities.shape[0] != 0:
-            scores = document_relevance_probabilities[:, np.r_[0:1, 2:3]]
+            scores = document_relevance_probabilities[:, np.r_[0:1, 2:3, 3:4]]
         else:
             scores = []
         return scores

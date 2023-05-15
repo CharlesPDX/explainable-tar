@@ -4,7 +4,24 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
-
+        {
+            "name": "Python: Flask",
+            "type": "python",
+            "request": "launch",
+            "module": "flask",
+            "env": {
+                "FLASK_APP": "./explainable-tar/app.py",
+                "FLASK_DEBUG": "1",
+                "PYTHONPATH": "/home/ccourc/explainable-tar/explainable-tar/tar_framework:/home/ccourc/explainable-tar/explainable-tar/:/home/ccourc/explainable-tar/"
+            },
+            "args": [
+                "run",
+                "--no-debugger",
+                "--no-reload"
+            ],
+            "jinja": true,
+            "justMyCode": true
+        },
         {
             "name": "Python: fuzzy_artmap_tar",
             "type": "python",
@@ -12,7 +29,10 @@
             "program": "./explainable-tar/fuzzy_artmap_tar.py",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "args": ["-p", "test_small_reuters_params.json"]
+            "args": [
+                "-p",
+                "test_small_reuters_params.json"
+            ]
         },
         {
             "name": "Python: fuzzy_artmap_tar worker",
@@ -21,8 +41,15 @@
             "program": "./explainable-tar/tar_framework/fuzzy_artmap_distributed_gpu.py",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "args": ["-r", "localhost:8786", "-l", "-v"],
-            "env": {"PYTHONPATH": "/home/ccourc/explainable-tar/explainable-tar/tar_framework:/home/ccourc/explainable-tar/explainable-tar/:/home/ccourc/explainable-tar/"}
+            "args": [
+                "-r",
+                "localhost:8786",
+                "-l",
+                "-v"
+            ],
+            "env": {
+                "PYTHONPATH": "/home/ccourc/explainable-tar/explainable-tar/tar_framework:/home/ccourc/explainable-tar/explainable-tar/:/home/ccourc/explainable-tar/"
+            }
         },
         {
             "name": "Python: Current File",
@@ -39,7 +66,13 @@
             "program": "./cluster_manager.py",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "args": ["-i", "test_run", "-w", "4", "-t"] //, "--update"]
+            "args": [
+                "-i",
+                "test_run",
+                "-w",
+                "4",
+                "-t"
+            ] //, "--update"]
         },
         {
             "name": "Python: Connect - Cluster Manager",
@@ -48,7 +81,12 @@
             "program": "./cluster_manager.py",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "args": ["-i", "test_run", "-c", "-t"]//, "--update"]
+            "args": [
+                "-i",
+                "test_run",
+                "-c",
+                "-t"
+            ] //, "--update"]
         },
         {
             "name": "Python: Bootstrap - Cluster Manager",
@@ -57,7 +95,14 @@
             "program": "./cluster_manager.py",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "args": ["-i", "test_run", "-w", "1", "-t", "-b"] //, "--update"]
+            "args": [
+                "-i",
+                "test_run",
+                "-w",
+                "1",
+                "-t",
+                "-b"
+            ] //, "--update"]
         },
         {
             "name": "Python: Run Registrar",
@@ -71,11 +116,17 @@
     "compounds": [
         {
             "name": "Run Distributed Fuzzy ARTMAP TAR",
-            "configurations": ["Python: Run Registrar", "Python: fuzzy_artmap_tar", "Python: fuzzy_artmap_tar worker"]
+            "configurations": [
+                "Python: Run Registrar",
+                "Python: fuzzy_artmap_tar",
+                "Python: fuzzy_artmap_tar worker"
+            ]
         },
         {
             "name": "Run Local Fuzzy ARTMAP TAR",
-            "configurations": ["Python: fuzzy_artmap_tar"]
+            "configurations": [
+                "Python: fuzzy_artmap_tar"
+            ]
         }
     ]
 }
