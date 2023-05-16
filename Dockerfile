@@ -7,8 +7,7 @@ COPY ./explainable-tar/requirements.txt ./explainable-tar/requirements.txt
 RUN  pip3 install -r explainable-tar/requirements.txt
 
 COPY ./explainable-tar /explainable-tar
-COPY ./data/reuters21578 ../data/reuters21578
-COPY ./data/pickels/reuters_tokens.pkl ../data/pickels/reuters_tokens.pkl
+COPY ./data/ ../data/
 
 ENTRYPOINT ["python3"]
 CMD ["app.py"]

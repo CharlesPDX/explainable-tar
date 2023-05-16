@@ -56,7 +56,7 @@ var ViewModel = function() {
         }
         self.gettingData(true);
         self.gettingExplanation(true);
-        var explainData = JSON.stringify({documentId: self.documentIds[self.currentIndex]})
+        var explainData = JSON.stringify({documentId: self.documentIds[self.currentIndex], vectorizer: self.selectedRepresentation(), categoryId: self.documentCategories[self.currentIndex]});
         $.ajax({
             url: "/explain",
             data : explainData,
