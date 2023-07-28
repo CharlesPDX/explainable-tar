@@ -1,15 +1,21 @@
 import os
 from collections import namedtuple
+import datetime
 from operator import itemgetter
 from pathlib import Path
 import pickle
 
+from bokeh.embed import components, json_item
+from bokeh.resources import INLINE
 from flask import Flask
 from flask import render_template, request
 import gensim.downloader as gensim_api
 import numpy as np
+from scipy.sparse import vstack, csr_matrix
 from sklearn.preprocessing import MinMaxScaler
 import torch
+import umap
+import umap.plot
 
 import tar_framework.ranking as ranking
 from tar_framework.assessing import Assessor
@@ -27,36 +33,66 @@ complete_pseudo_dids = assessor.get_complete_document_ids_with_pseudo_document()
 complete_pseudo_texts = assessor.get_complete_document_texts_with_pseudo_document()
 
 ranker = ranking.Ranker(model_type="famdg", committed_beta=1.0, number_of_mapping_nodes=50, scheduler_address="localhost:8786")
+umap_embedding = None
+
 
 @app.route('/')
-def hello():
-	return render_template('index.html')
+def index():
+	return render_template('index.html', resources=INLINE.render())
 
-@app.route("/search", methods=["POST"])
-async def getSeedDocs():
-    if request.form["vectorizer"] == "tf-idf":
+
+def get_graph(document_id, category_id):
+    ones = torch.ones([300])
+    feature_a = csr_matrix(torch.unsqueeze(ranker.model.training_fuzzy_artmap.weight_a[category_id,0:300], dim=0).numpy())
+    feature_b = csr_matrix(torch.unsqueeze((ones - ranker.model.training_fuzzy_artmap.weight_a[category_id,300:]), dim=0).numpy())
+    global umap_embedding
+    print(f"start umap transform {datetime.datetime.now()}")
+    feature_embeddings = umap_embedding.transform(vstack([feature_a, feature_b]))
+    print(f"umap transform complete {datetime.datetime.now()}")
+    point_a = feature_embeddings[0,:]
+    point_b = feature_embeddings[1,:]
+    f = umap.plot.interactive(umap_embedding, point_size=1)
+    category_center_x = (point_a[0] + point_b[0]) / 2
+    category_center_y = (point_a[1] + point_b[1]) / 2
+    category_width = abs(point_a[0] + point_b[0])
+    category_height = abs(point_a[1] + point_b[1])
+    document_point = umap.plot._get_embedding(umap_embedding)[complete_dids.index(document_id)]
+    f.circle([document_point[0]], [document_point[1]], size=10, line_color="red", fill_color="red")
+    print(f"document point: {[document_point[0]]}, {[document_point[1]]}")
+    print(f"center: ({category_center_x},{category_center_y}) height={category_height}, width={category_width}")
+    
+    f.rect(x=category_center_x, y=category_center_y, width=category_width, height=category_height, color="blue", line_alpha=0.25, fill_alpha=0.5, line_width=.01)
+    return json_item(f, "graph_container")
+
+
+@app.route("/search", methods=["GET"])
+async def get_seed_docs():
+    vectorizer_requested = request.args["vectorizer"]
+    if vectorizer_requested == "tf-idf":
         vectorizer_type = ranking.VectorizerType.tf_idf
-    elif request.form["vectorizer"] == "word2vec":
+    elif vectorizer_requested == "word2vec":
         vectorizer_type = ranking.VectorizerType.word2vec
-    elif request.form["vectorizer"] == "glove":
+    elif vectorizer_requested == "glove":
         vectorizer_type = ranking.VectorizerType.glove
 
     ranker.model = None
     ranker.set_document_ids_to_features(dids=complete_pseudo_dids, texts=complete_pseudo_texts, corpus_texts=complete_pseudo_texts, vectorizer_type=vectorizer_type, corpus_name=corpus_name)
     ranker.set_features_by_name("complete_dids", complete_dids)
     await ranker.cache_corpus_in_model(complete_dids)
-    
-    doc_ids, scores = ranking.bm25_okapi_rank(assessor.get_complete_document_ids(), assessor.get_complete_texts(), request.form["seedKeywords"])
+
+    doc_ids, scores = ranking.bm25_okapi_rank(assessor.get_complete_document_ids(), assessor.get_complete_texts(), request.args["seedKeywords"])
     documents = [assessor.document_id_to_text[doc_id] for doc_id in doc_ids[:10]]
     return {"documents": documents, "document_ids": doc_ids[:10], "scores": scores[:10]}
+
 
 @app.route("/reset", methods=["POST"])
 def resetModel():
     ranker.model = None
     return {}
 
+
 @app.route("/score", methods=["POST"])
-async def updateModel():
+async def update_model():
     evaluated_document_ids = request.json["documentIds"]
     relevance_scores = request.json["relevanceScores"]
     features = ranker.get_feature_by_document_ids(evaluated_document_ids)
@@ -75,29 +111,41 @@ async def updateModel():
     return {"documents": documents, "document_ids": ranked_document_ids[:10], "doc_categories": artmap_categories[:10]}
 
 
-@app.route("/explain", methods=["POST"])
-async def explainDocument():
-    explanation = f"No explanation for document: {request.json['documentId']}"
-    if request.json["vectorizer"] == "tf-idf":
+@app.route("/explain", methods=["GET"])
+async def explain_document():
+    category_id = int(request.args["categoryId"])
+    document_id = request.args['documentId']
+    explanation = f"No explanation for document: {document_id}"
+    if request.args["vectorizer"] == "tf-idf":
         global features
         if features is None:
             features = get_tf_idf_features()
-        category_and_feature_info = get_category_and_feature_info(ranker.model.training_fuzzy_artmap, int(request.json["categoryId"]))
+        category_and_feature_info = get_category_and_feature_info(ranker.model.training_fuzzy_artmap, category_id)
         rule = convert_category_and_feature_info_to_rule(category_and_feature_info[0])
-        explanation = f"Rule for category ({request.json['categoryId']}) associated with document {request.json['documentId']}:\n{rule}"
-    elif request.json["vectorizer"] == "word2vec":
+        explanation = f"Rule for category ({request.args['categoryId']}) associated with document {document_id}:\n{rule}"
+    elif request.args["vectorizer"] == "word2vec":
         global word2vec_model
         if word2vec_model is None:
             word2vec_model = get_word2vec_features()
-        descriptors = build_word2vec_category_descriptors(ranker.model.training_fuzzy_artmap, int(request.json["categoryId"]))
-        explanation = f"Category ({request.json['categoryId']}) associated with document {request.json['documentId']} is described by:\n{', '.join(descriptors)}"
+        descriptors = build_word2vec_category_descriptors(ranker.model.training_fuzzy_artmap, category_id)
+        explanation = f"Category ({request.args['categoryId']}) associated with document {document_id} is described by:\n{', '.join(descriptors)}"
     else:
         global glove_model
         if glove_model is None:
             load_glove_model()
-        descriptors = build_glove_category_descriptors(ranker.model.training_fuzzy_artmap, int(request.json["categoryId"]))
-        explanation = f"Category ({request.json['categoryId']}) associated with document {request.json['documentId']} is described by:\n{', '.join(descriptors)}"
-    return {"explanation_type":"string", "explanation": explanation}
+        descriptors = build_glove_category_descriptors(ranker.model.training_fuzzy_artmap, category_id)
+        explanation = f"Category ({request.args['categoryId']}) associated with document {document_id} is described by:\n{', '.join(descriptors)}"
+    
+    graph = None
+    if request.args["vectorizer"] in ["word2vec", "glove"]:
+        print(datetime.datetime.now())
+        global umap_embedding
+        if umap_embedding is None:
+            umap_embedding = umap.UMAP(n_components=2, metric='hellinger', random_state=42).fit(ranker.get_features_by_name("complete_dids"))
+        print(datetime.datetime.now())
+        graph = get_graph(document_id, category_id)
+
+    return {"explanation_type":"string", "explanation": explanation, "graph": graph}
 
 features = None
 word2vec_model = None

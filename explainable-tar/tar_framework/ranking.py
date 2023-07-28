@@ -152,6 +152,7 @@ class Ranker(object):
         self.scheduler_address = scheduler_address
         self.max_nodes = max_nodes
         self.set_document_ids_to_features_parameters = None
+        self.document_index_mapping = None
 
         if self.model_type == 'lr':
             self.model = LogisticRegression(solver='lbfgs', random_state=self.random_state, C=self.C, max_iter=10000)
@@ -354,11 +355,11 @@ class Ranker(object):
 
         if self.model_type in self.fam_models:
             corpus_features = self.get_feature_by_document_ids(document_ids)
-            document_index_mapping = {document_id: index for index, document_id in enumerate(document_ids)}
+            self.document_index_mapping = {document_id: index for index, document_id in enumerate(document_ids)}
             if self.model_type == "famdg":
-                await self.model.cache_corpus(self.set_document_ids_to_features_parameters, document_index_mapping)
+                await self.model.cache_corpus(self.set_document_ids_to_features_parameters, self.document_index_mapping)
             else:
-                self.model.cache_corpus(corpus_features, document_index_mapping)
+                self.model.cache_corpus(corpus_features, self.document_index_mapping)
         else:
             pass
 

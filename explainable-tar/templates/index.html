@@ -1,5 +1,9 @@
 {% extends 'base.html' %}
 
+{% block head_content %}
+    {{ resources | safe }}
+{% endblock %}
+
 {% block header %}
   <h1>{% block title %}Explainable Fuzzy ARTMAP TAR Demo{% endblock %}</h1>
 {% endblock %}
@@ -11,7 +15,7 @@
         <label>Seed query:</label>
         <input id="seed_keywords" data-bind="value: seedKeywords, enable: firstRun" type="text"/>
         <button data-bind='click: seedSearch, enable: firstRun'>Search</button>
-        <button data-bind='click: reset, disable: firstRun'>reset</button>
+        <button data-bind='click: reset, disable: firstRun'>Reset</button>
     </p>
 
     <p>
@@ -29,6 +33,9 @@
     </p>
     <div>
         <textarea id="explanation" rows="8" cols="48" readonly="True" data-bind='value: explanation'></textarea>
+    </div>
+    <div id="graph_container" style="display: flex; justify-content: center;">
+        
     </div>
 
 {% endblock %}

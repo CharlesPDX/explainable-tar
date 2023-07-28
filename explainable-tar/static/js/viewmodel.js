@@ -24,14 +24,19 @@ var ViewModel = function() {
         self.gettingData(true);
         self.searching(true);
         var data = {"seedKeywords": self.seedKeywords(), "vectorizer": self.selectedRepresentation()};
-        $.post("/search", data, function(returnedData) {
-            self.gettingData(false);
-            self.searching(false);
-            console.log(returnedData);
-            self.documents = returnedData["documents"];
-            self.scores = returnedData["scores"];
-            self.documentIds = returnedData["document_ids"];
-            self.currentDocument(self.documents[self.currentIndex]);
+        $.ajax({
+            url: "/search",
+            data : data,
+            type : 'GET',
+            success: function(returnedData) {
+                self.gettingData(false);
+                self.searching(false);
+                console.log(returnedData);
+                self.documents = returnedData["documents"];
+                self.scores = returnedData["scores"];
+                self.documentIds = returnedData["document_ids"];
+                self.currentDocument(self.documents[self.currentIndex]);
+            }
         })
     };
 
@@ -45,6 +50,7 @@ var ViewModel = function() {
             self.currentDocument("");
             self.seedKeywords("");
             self.explanation("");
+            document.getElementById("graph_container").innerHTML = "";
             self.relevanceScores = [];
         })
     };
@@ -56,18 +62,21 @@ var ViewModel = function() {
         }
         self.gettingData(true);
         self.gettingExplanation(true);
-        var explainData = JSON.stringify({documentId: self.documentIds[self.currentIndex], vectorizer: self.selectedRepresentation(), categoryId: self.documentCategories[self.currentIndex]});
+        var explainData = {documentId: self.documentIds[self.currentIndex], vectorizer: self.selectedRepresentation(), categoryId: self.documentCategories[self.currentIndex]};
         $.ajax({
             url: "/explain",
             data : explainData,
-            contentType : 'application/json',
-            type : 'POST',
+            type : 'GET',
             success:  function(returnedData) {
                 self.gettingData(false);
                 self.gettingExplanation(false);
                 console.log(returnedData);
                 if (returnedData["explanation_type"] == "string"){
-                    self.explanation(returnedData["explanation"])
+                    self.explanation(returnedData["explanation"]);
+                }
+                if(returnedData["graph"] != null){
+                    document.getElementById("graph_container").innerHTML = "";
+                    Bokeh.embed.embed_item(returnedData["graph"])
                 }
             }
         })
@@ -75,6 +84,7 @@ var ViewModel = function() {
 
     this.clear = function(){
         self.explanation("");
+        document.getElementById("graph_container").innerHTML = "";
     };
 
     this.scoreRelevant = function(){
@@ -115,6 +125,7 @@ var ViewModel = function() {
         else{
             self.currentDocument(self.documents[self.currentIndex]);
             self.explanation("");
+            document.getElementById("graph_container").innerHTML = "";
         }
     };
 };
