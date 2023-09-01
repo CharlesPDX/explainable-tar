@@ -42,9 +42,10 @@ def index():
 
 
 def get_graph(document_id, category_id):
-    ones = torch.ones([300])
-    feature_a = csr_matrix(torch.unsqueeze(ranker.model.training_fuzzy_artmap.weight_a[category_id,0:300], dim=0).numpy())
-    feature_b = csr_matrix(torch.unsqueeze((ones - ranker.model.training_fuzzy_artmap.weight_a[category_id,300:]), dim=0).numpy())
+    base_dimensions = int(ranker.model.training_fuzzy_artmap.weight_a.shape[1] / 2)
+    ones = torch.ones([base_dimensions])
+    feature_a = csr_matrix(torch.unsqueeze(ranker.model.training_fuzzy_artmap.weight_a[category_id,0:base_dimensions], dim=0).numpy())
+    feature_b = csr_matrix(torch.unsqueeze((ones - ranker.model.training_fuzzy_artmap.weight_a[category_id,base_dimensions:]), dim=0).numpy())
     global umap_embedding
     print(f"start umap transform {datetime.datetime.now()}")
     feature_embeddings = umap_embedding.transform(vstack([feature_a, feature_b]))
@@ -88,6 +89,8 @@ async def get_seed_docs():
 @app.route("/reset", methods=["POST"])
 def resetModel():
     ranker.model = None
+    global umap_embedding
+    umap_embedding = None
     return {}
 
 
@@ -137,13 +140,12 @@ async def explain_document():
         explanation = f"Category ({request.args['categoryId']}) associated with document {document_id} is described by:\n{', '.join(descriptors)}"
     
     graph = None
-    if request.args["vectorizer"] in ["word2vec", "glove"]:
-        print(datetime.datetime.now())
-        global umap_embedding
-        if umap_embedding is None:
-            umap_embedding = umap.UMAP(n_components=2, metric='hellinger', random_state=42).fit(ranker.get_features_by_name("complete_dids"))
-        print(datetime.datetime.now())
-        graph = get_graph(document_id, category_id)
+    print(f"{datetime.datetime.now()} - starting umap embedding generation")
+    global umap_embedding
+    if umap_embedding is None:
+        umap_embedding = umap.UMAP(n_components=2, metric='hellinger', random_state=42).fit(ranker.get_features_by_name("complete_dids"))
+    print(f"{datetime.datetime.now()} - finished umap embedding generation")
+    graph = get_graph(document_id, category_id)
 
     return {"explanation_type":"string", "explanation": explanation, "graph": graph}
 
