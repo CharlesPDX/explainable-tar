@@ -76,7 +76,8 @@ var ViewModel = function() {
                 }
                 if(returnedData["graph"] != null){
                     document.getElementById("graph_container").innerHTML = "";
-                    Bokeh.embed.embed_item(returnedData["graph"])
+                    graphObject = JSON.parse(returnedData["graph"]);
+                    Bokeh.embed.embed_item(graphObject);
                 }
             }
         })

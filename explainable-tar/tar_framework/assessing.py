@@ -20,7 +20,7 @@ class DataLoader(object):
         self.title = self.read_title(query_file)
         self.document_id_to_label = self.read_qrels(qrel_file)
         self.document_ids = self.read_doc_ids(doc_id_file)
-        self.document_id_to_text = self.read_doc_texts(doc_text_file)
+        self.document_id_to_text, self.document_id_to_title = self.read_doc_texts(doc_text_file)
 
         self.pseudo_document_id = 'pseudo_did'
         self.pseudo_text = self.title
@@ -56,6 +56,7 @@ class DataLoader(object):
     @staticmethod
     def read_doc_texts(doc_text_file):
         dct = {}
+        document_id_to_title = {}
         with open(doc_text_file, 'r', encoding='utf8') as f:
             for line in f:
                 # entry = {'id': doc_id, 'title': subject, 'content': content}
@@ -65,7 +66,8 @@ class DataLoader(object):
                 doc_id = entry['id']
                 text = entry['title'] + ' ' + entry['content']
                 dct[doc_id] = text
-        return dct
+                document_id_to_title[doc_id] = entry['title']
+        return dct, document_id_to_title
 
     @staticmethod
     def read_doc_texts_2_list(doc_text_file):
@@ -91,6 +93,9 @@ class DataLoader(object):
 
     def get_complete_document_texts_with_pseudo_document(self):
         return [self.document_id_to_text[did] for did in self.document_ids] + [self.pseudo_text]
+
+    def get_complete_document_titles(self):
+        return [self.document_id_to_title[did] for did in self.document_ids]
 
     def get_complete_document_ids(self):
         return self.document_ids
@@ -121,6 +126,7 @@ class Assessor(DataLoader):
         self.assessed_document_ids = []
         self.unassessed_document_ids = copy.copy(self.document_id_to_label)
         self.assessment_state = defaultdict(lambda: False)
+        self.relevance_assessments = dict()
 
     def get_training_data(self, number_of_training_docs):
         """
@@ -139,6 +145,13 @@ class Assessor(DataLoader):
 
         assert len(document_ids) == len(labels)
         return document_ids, labels
+
+    def add_relevance_assessments(self, document_ids, relevnace_assessments):
+        for index, document_id in enumerate(document_ids):
+            self.relevance_assessments[document_id] = bool(relevnace_assessments[index])
+
+    def get_relevance_assessments(self):
+        return self.relevance_assessments
 
     def update_assessment(self, document_ids):
 
