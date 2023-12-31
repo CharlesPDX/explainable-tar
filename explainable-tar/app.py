@@ -161,13 +161,14 @@ def get_graph(document_id, category_id):
     category_center_y = (point_a[1] + point_b[1]) / 2
     x_offset = 0.4
     y_offset = 0.4
+    document_point = umap.plot._get_embedding(umap_embedding)[complete_dids.index(document_id)]
     plot = bpl.figure(
             width=800,
             height=800,
             tooltips=tooltips,
             active_scroll="wheel_zoom",
-            x_range=(category_center_x - x_offset, category_center_x + x_offset),
-            y_range=(category_center_y - y_offset, category_center_y + y_offset) 
+            x_range=(document_point[0] - x_offset, document_point[0] + x_offset),
+            y_range=(document_point[1] - y_offset, document_point[1] + y_offset) 
         )
 
     plot.grid.visible = False
@@ -194,7 +195,7 @@ def get_graph(document_id, category_id):
 
     category_width = abs(point_a[0] + point_b[0])
     category_height = abs(point_a[1] + point_b[1])
-    document_point = umap.plot._get_embedding(umap_embedding)[complete_dids.index(document_id)]
+    
     current_document_render = plot.circle([document_point[0]], [document_point[1]], size=10, line_color="red", fill_color="red")
     print(f"document point: {[document_point[0]]}, {[document_point[1]]}")
     print(f"center: ({category_center_x},{category_center_y}) height={category_height}, width={category_width}")

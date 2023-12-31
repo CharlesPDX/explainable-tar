@@ -24,6 +24,9 @@ data/reuters-rcv1/
 data/tr/
 data/legal/
 data/rcv*
+data/down*
+data/*tr*
+data/clef2017
 
 # dask locks
 dask-worker-space/
