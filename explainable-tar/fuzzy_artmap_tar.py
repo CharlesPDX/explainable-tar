@@ -20,6 +20,7 @@ import tornado.ioloop
 
 from tar_framework.assessing import Assessor
 from tar_framework.ranking import Ranker, VectorizerType
+from tar_framework.fuzzy_artmap_distributed_gpu import ProcessingMode
 from metric_utilities import MetricType, calculate_ap
 from parameter_utilities import make_file_params
 from tar_framework.run_utilities import LOGGER, name_tar_run_file, write_tar_run_file, name_interaction_file, REL
@@ -38,6 +39,21 @@ def get_traceback_string(e: Exception):
     else:
         return ''.join(traceback.format_exception(etype=type(e), value=e, tb=e.__traceback__))
 
+
+async def retrain_model(ranker: Ranker, assessor: Assessor) -> None:
+    relevant_document_ids = assessor.get_assessed_relevant_document_ids()
+    positive_doc_ids = random.sample(relevant_document_ids, len(relevant_document_ids))
+    assert len(positive_doc_ids) == len(relevant_document_ids)
+    retraining_labels = list(len(positive_doc_ids) * [1])
+    retraining_features = ranker.get_feature_by_document_ids(positive_doc_ids)
+    LOGGER.info("Re-Caching corpus")
+    ranker.model = None
+    await ranker.cache_corpus_in_model(assessor.get_complete_document_ids()) # TODO: test removing already evaluated IDs
+    LOGGER.info("Re-Caching complete")
+    LOGGER.info("Begining retraining")
+    await ranker.retrain_model(retraining_features, retraining_labels, positive_doc_ids)
+    
+
 async def fuzzy_artmap_method(data_name, topic_set, topic_id,
                 query_file, qrel_file, doc_id_file, doc_text_file,  # data parameters
                 stopping_percentage=1.0, stopping_recall=None,  # autostop parameters
@@ -45,6 +61,7 @@ async def fuzzy_artmap_method(data_name, topic_set, topic_id,
                 vectorizer_params=None,
                 vectorizer_type=VectorizerType.tf_idf,
                 classifier_params=None,
+                retrain_count=0,
                 **kwargs):
     """
     TAR implementation using Fuzzy ARTMAP as the classifier.
@@ -77,9 +94,18 @@ async def fuzzy_artmap_method(data_name, topic_set, topic_id,
     # local parameters
     stopping = False
     t = 0
-    batch_size = 1_000
+    batch_size = 100
+    was_retrained = False
+    number_of_retrainings = 0
+    retrained_iteration = []
+    node_count_at_retrain = 0
+    number_of_increases_at_retrain = 0
 
-    classifier_params["batch_size"] = batch_size
+    if "batch_size" not in classifier_params:
+        classifier_params["batch_size"] = batch_size
+
+    if "mode" not in classifier_params:
+        classifier_params["mode"] = ProcessingMode.local
 
     # preparing document features
     ranker = Ranker(**classifier_params)
@@ -142,10 +168,10 @@ async def fuzzy_artmap_method(data_name, topic_set, topic_id,
             if classifier_params["active_learning_mode"] == "ranked":
                 zipped = sorted(scores, key=itemgetter(0), reverse=True)
             else:
-                zipped = list(scores)                
+                zipped = list(scores)
             
             if len(zipped) > 0:
-                _, ranked_dids = zip(*zipped)
+                _, ranked_dids, _ = zip(*zipped)
             else:
                 ranked_dids = []
             
@@ -179,12 +205,23 @@ async def fuzzy_artmap_method(data_name, topic_set, topic_id,
             if len(zipped) == 0 or zipped[0][0] == 0 or zipped[0][0] == "0":
                 if running_true_r == last_r:
                     LOGGER.info("No more relevant documents found")
-                    stopping = True
+                    if retrain_count > 0 and (number_of_retrainings + 1) <= retrain_count:
+                        LOGGER.info("Retraining model")
+                        number_of_retrainings += 1
+                        was_retrained = True
+                        retrained_iteration.append(t)
+                        node_count_at_retrain += ranker.model.get_number_of_nodes()
+                        number_of_increases_at_retrain += ranker.model.get_number_of_increases()
+                        await retrain_model(ranker, assessor)
+                        LOGGER.info("Retraining complete")
+                    else:
+                        LOGGER.info("Stopping")
+                        stopping = True
 
             last_r = running_true_r
 
             # train model with new assessments
-            if not stopping:
+            if not stopping and not was_retrained:
                 LOGGER.info("Starting assessed document training")
                 assessed_labels = [assessor.get_rel_label(doc_id) for doc_id in selected_dids]
                 assesed_features = ranker.get_feature_by_document_ids(selected_dids)
@@ -203,16 +240,19 @@ async def fuzzy_artmap_method(data_name, topic_set, topic_id,
             iteration_duration = datetime.now() - iteration_start_time
             experiment.checkpoint(step=t, primary_metric=("running_true_recall", "maximize"), metrics={"run_group": param_group_name, "metric_type": MetricType.step.name,
                 "iteration": t,
-"batch_size": batch_size,
-"total_num": total_num,
-"sampled_num": sampled_num,
-"total_true_r": total_true_r,
-"running_true_r": running_true_r,
-"ap": ap,
-"running_true_recall": running_true_recall,
-"sampled_percentage": sampled_percentage,
-"iteration_duration_seconds":iteration_duration.total_seconds(),
-"iteration_duration":str(iteration_duration)})
+                "batch_size": batch_size,
+                "total_num": total_num,
+                "sampled_num": sampled_num,
+                "total_true_r": total_true_r,
+                "running_true_r": running_true_r,
+                "ap": ap,
+                "running_true_recall": running_true_recall,
+                "sampled_percentage": sampled_percentage,
+                "iteration_duration_seconds":iteration_duration.total_seconds(),
+                "iteration_duration":str(iteration_duration),
+                "was_retrained": was_retrained})
+            was_retrained = False
+            LOGGER.info(f"r: {running_true_recall}, ap: {ap}, sampled: {sampled_percentage}% - retrainings: {number_of_retrainings}")
     
     stop_time = datetime.now()
     tar_run_file = write_results()
@@ -228,17 +268,18 @@ async def fuzzy_artmap_method(data_name, topic_set, topic_id,
                                    "calculated_metrics": final_metrics, 
                                    "elapsed_time": str(elapsed_run_time), 
                                    "elapsed_seconds": elapsed_run_time.total_seconds(), 
-                                   "nodes": ranker.model.get_number_of_nodes(),
-                                   "number_of_increases": ranker.model.get_number_of_increases(),
+                                   "nodes": ranker.model.get_number_of_nodes() + node_count_at_retrain,
+                                   "number_of_increases": ranker.model.get_number_of_increases() + number_of_increases_at_retrain,
                                    "increase_size": ranker.model.get_increase_size(),
-                                   "committed_nodes": ranker.model.get_committed_nodes()})
+                                   "committed_nodes": ranker.model.get_committed_nodes(),
+                                   "retrained_iteration": ",".join([str(interation) for interation in retrained_iteration])})
 
     LOGGER.info(f'TAR is finished. Elapsed: {elapsed_run_time}. r - {running_true_recall}')
     return
 
 
 async def main():
-    await fuzzy_artmap_method(**corpus_params, vectorizer_type=experiment_params["vectorizer_type"], vectorizer_params=experiment_params["vectorizer_params"], classifier_params=fuzzy_artmap_params)
+    await fuzzy_artmap_method(**corpus_params, vectorizer_type=experiment_params["vectorizer_type"], vectorizer_params=experiment_params["vectorizer_params"], classifier_params=fuzzy_artmap_params, retrain_count=fuzzy_artmap_params.get("retrain_count", 0))
 
 def get_git_revision_hash() -> str:
     return subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode('ascii').strip()
@@ -298,7 +339,8 @@ if __name__ == '__main__':
                                             "random_state": json.dumps(random.getstate()), 
                                             "run_notes": experiment_params["run_notes"],
                                             "git_revision_hash": git_revision_hash,
-                                            "git_short_hash": git_revision_short_hash
+                                            "git_short_hash": git_revision_short_hash,
+                                            "retrain_count": fuzzy_artmap_params.get("retrain_count", 0)
                                            })
         try:
             tornado.ioloop.IOLoop.current().run_sync(main)

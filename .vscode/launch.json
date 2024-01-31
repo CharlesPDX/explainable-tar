@@ -12,7 +12,7 @@
             "env": {
                 "FLASK_APP": "./explainable-tar/app.py",
                 "FLASK_DEBUG": "1",
-                "PYTHONPATH": "/home/ccourc/explainable-tar/explainable-tar/tar_framework:/home/ccourc/explainable-tar/explainable-tar/:/home/ccourc/explainable-tar/"
+                "PYTHONPATH": "/home/snuc/dev/explainable-tar/explainable-tar/tar_framework:/home/snuc/dev/explainable-tar/explainable-tar/:/home/snuc/dev/explainable-tar/"
             },
             "args": [
                 "run",
@@ -31,7 +31,7 @@
             "justMyCode": true,
             "args": [
                 "-p",
-                "test_small_reuters_params.json"
+                "small_reuters_test_alpha_params.json"
             ]
         },
         {
@@ -48,7 +48,7 @@
                 "-v"
             ],
             "env": {
-                "PYTHONPATH": "/home/ccourc/explainable-tar/explainable-tar/tar_framework:/home/ccourc/explainable-tar/explainable-tar/:/home/ccourc/explainable-tar/"
+                "PYTHONPATH": "/home/snuc/dev/explainable-tar/explainable-tar/tar_framework:/home/snuc/dev/explainable-tar/explainable-tar/:/home/snuc/dev/explainable-tar/"
             }
         },
         {

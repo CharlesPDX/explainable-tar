@@ -38,7 +38,7 @@ import jsonpickle
 from tar_framework.fuzzy_artmap import FuzzyArtMap
 from tar_framework.fuzzy_artmap_gpu import FuzzyArtMapGpu
 # from tar_framework.fuzzy_artmap_distributed import FuzzyArtmapDistributed
-from tar_framework.fuzzy_artmap_distributed_gpu import FuzzyArtmapGpuDistributed
+from tar_framework.fuzzy_artmap_distributed_gpu import FuzzyArtmapGpuDistributed, ProcessingMode
 from tar_framework.run_utilities import PARENT_DIR, LOGGER, REL
 
 
@@ -133,7 +133,7 @@ class Ranker(object):
     """
     Manager the ranking module of the TAR framework.
     """
-    def __init__(self, model_type='lr', min_df=2, C=1.0, random_state=0, rho_a_bar=0.95, number_of_mapping_nodes=36, scheduler_address=None, max_nodes = None, committed_beta = 0.75, active_learning_mode = "ranked", batch_size=100):
+    def __init__(self, model_type='lr', min_df=2, C=1.0, random_state=0, rho_a_bar=0.95, number_of_mapping_nodes=36, scheduler_address=None, max_nodes = None, committed_beta = 0.75, active_learning_mode = "ranked", batch_size=100, retrain_count = 0, mode: ProcessingMode = ProcessingMode.local):
         self.fam_models = ['fam', 'famg', 'famd', 'famdg']
         self.model_type = model_type
         self.random_state = random_state
@@ -153,6 +153,7 @@ class Ranker(object):
         self.max_nodes = max_nodes
         self.set_document_ids_to_features_parameters = None
         self.document_index_mapping = None
+        self.mode = mode
 
         if self.model_type == 'lr':
             self.model = LogisticRegression(solver='lbfgs', random_state=self.random_state, C=self.C, max_iter=10000)
@@ -350,7 +351,7 @@ class Ranker(object):
                 raise NotImplementedError("Removed dask-based distributed implementation")
         elif self.model_type == "famdg":
             if not self.model:
-                self.model = FuzzyArtmapGpuDistributed(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, scheduler_address=self.scheduler_address, max_nodes=self.max_nodes, committed_beta=self.committed_beta, active_learning_mode=self.active_learning_mode, batch_size=self.batch_size)
+                self.model = FuzzyArtmapGpuDistributed(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, scheduler_address=self.scheduler_address, max_nodes=self.max_nodes, committed_beta=self.committed_beta, active_learning_mode=self.active_learning_mode, batch_size=self.batch_size, mode = self.mode)
                 await self.model.initialize_workers()
 
         if self.model_type in self.fam_models:
@@ -422,10 +423,10 @@ class Ranker(object):
             # self.model = FuzzyArtmapDistributed(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, scheduler_address=self.scheduler_address)
             # model = self.model
         elif self.model_type == "famdg" and not self.model:
-            self.model = FuzzyArtmapGpuDistributed(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, scheduler_address=self.scheduler_address, max_nodes=self.max_nodes, committed_beta=self.committed_beta, active_learning_mode=self.active_learning_mode, batch_size=self.batch_size)
+            self.model = FuzzyArtmapGpuDistributed(number_of_features*2, self.number_of_mapping_nodes, rho_a_bar=self.rho_a_bar, scheduler_address=self.scheduler_address, max_nodes=self.max_nodes, committed_beta=self.committed_beta, active_learning_mode=self.active_learning_mode, batch_size=self.batch_size, mode = self.mode)
             model = self.model
             await self.model.initialize_workers()
-            await model.fit(features, labels)
+            await model.fit(features, labels, doc_ids)
             return
         else:
             model = self.model
@@ -434,6 +435,9 @@ class Ranker(object):
         else:
             await model.fit(features, labels, doc_ids)
         # logging.info('Ranker.train is done.')
+
+    async def retrain_model(self, features, labels, doc_ids = None):
+        await self.train(features, labels, doc_ids)
 
     def predict(self, features):
         probs = self.model.predict_proba(features)

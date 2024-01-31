@@ -2,8 +2,7 @@ from enum import Enum
 import sys
 import os
 sys.path.insert(0, os.path.join(os.getcwd()))
-sys.path.insert(0, os.path.join(os.getcwd(), 'autostop'))
-sys.path.insert(0, os.path.join(os.getcwd(), 'autostop/tar_framework'))
+sys.path.insert(0, os.path.join(os.getcwd(), 'tar_framework'))
 
 from datetime import datetime
 import json
@@ -11,7 +10,8 @@ import json
 import numpy as np
 import jsonpickle
 
-from autostop.tar_framework.ranking import VectorizerType
+from tar_framework.ranking import VectorizerType
+from tar_framework.fuzzy_artmap_distributed_gpu import ProcessingMode
 
 class EnumEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -22,8 +22,8 @@ class EnumEncoder(json.JSONEncoder):
 
         return json.JSONEncoder.default(self, obj)
 
-def make_fuzzy_artmap_params(vigilance, number_of_mapping_nodes, model_type, max_nodes = None, committed_beta = 0.75, active_learning_mode = "ranked"):
-    fuzzy_artmap_params ={"rho_a_bar": vigilance, "number_of_mapping_nodes": number_of_mapping_nodes, "model_type": model_type, "max_nodes": max_nodes, "committed_beta": committed_beta, "active_learning_mode": active_learning_mode}
+def make_fuzzy_artmap_params(vigilance, number_of_mapping_nodes, model_type, max_nodes = None, committed_beta = 0.75, active_learning_mode = "ranked", number_of_retrainings = 0, mode = ProcessingMode.distributed):
+    fuzzy_artmap_params ={"rho_a_bar": vigilance, "number_of_mapping_nodes": number_of_mapping_nodes, "model_type": model_type, "max_nodes": max_nodes, "committed_beta": committed_beta, "active_learning_mode": active_learning_mode, "retrain_count": number_of_retrainings, "mode": mode}
     return fuzzy_artmap_params
 
 def build_experiments(fuzzy_artmap_params, corpus_name, topics, vectorizer_types, run_notes = None, run_group = None):
@@ -55,7 +55,7 @@ def build_experiment_for_corpus_and_topics(corpus_and_topics, fuzzy_artmap_param
     for corpus, topics in corpus_and_topics.items():
         experiments.update(build_experiments(fuzzy_artmap_params, corpus, topics, vectorizer_types, run_notes, vectorizer_params))
 
-def param_builder(filename_prefix, rho, beta, corpus_and_topics, run_notes, active_learning_mode, use_large_corpus = False):
+def param_builder(filename_prefix, rho, beta, corpus_and_topics, run_notes, active_learning_mode, use_large_corpus = False, number_of_retrainings = 0, mode = ProcessingMode.distributed):
     tf_idf_starting_nodes = 200
     glove_starting_nodes = 3000
     word2vec_starting_nodes = 3200
@@ -67,19 +67,19 @@ def param_builder(filename_prefix, rho, beta, corpus_and_topics, run_notes, acti
         word2vec_starting_nodes = 12_000
         sbert_starting_nodes = 16_000
 
-    default_fuzzy_artmap_params = make_fuzzy_artmap_params(rho, tf_idf_starting_nodes, "famdg", committed_beta=beta, active_learning_mode=active_learning_mode)
+    default_fuzzy_artmap_params = make_fuzzy_artmap_params(rho, tf_idf_starting_nodes, "famdg", committed_beta=beta, active_learning_mode=active_learning_mode, number_of_retrainings=number_of_retrainings)
     default_fuzzy_artmap_params["scheduler_address"] = "localhost:8786"
     default_vectorizer_types = [VectorizerType.tf_idf]
 
-    glove_fuzzy_artmap_params = make_fuzzy_artmap_params(rho, glove_starting_nodes, "famdg", committed_beta=beta, active_learning_mode=active_learning_mode)
+    glove_fuzzy_artmap_params = make_fuzzy_artmap_params(rho, glove_starting_nodes, "famdg", committed_beta=beta, active_learning_mode=active_learning_mode, number_of_retrainings=number_of_retrainings)
     glove_fuzzy_artmap_params["scheduler_address"] = "localhost:8786"
     glove_vectorizer_types = [VectorizerType.glove]
 
-    word2vec_fuzzy_artmap_params = make_fuzzy_artmap_params(rho, word2vec_starting_nodes, "famdg", committed_beta=beta, active_learning_mode=active_learning_mode)
+    word2vec_fuzzy_artmap_params = make_fuzzy_artmap_params(rho, word2vec_starting_nodes, "famdg", committed_beta=beta, active_learning_mode=active_learning_mode, number_of_retrainings=number_of_retrainings)
     word2vec_fuzzy_artmap_params["scheduler_address"] = "localhost:8786"
     word2vec_vectorizer_types = [VectorizerType.word2vec]
 
-    sbert_fuzzy_artmap_params = make_fuzzy_artmap_params(rho, sbert_starting_nodes, "famdg", committed_beta=beta, active_learning_mode=active_learning_mode)
+    sbert_fuzzy_artmap_params = make_fuzzy_artmap_params(rho, sbert_starting_nodes, "famdg", committed_beta=beta, active_learning_mode=active_learning_mode, number_of_retrainings=number_of_retrainings)
     sbert_fuzzy_artmap_params["scheduler_address"] = "localhost:8786"
     sbert_vectorizer_types = [VectorizerType.sbert]
 
@@ -89,7 +89,7 @@ def param_builder(filename_prefix, rho, beta, corpus_and_topics, run_notes, acti
     # build_experiment_for_corpus_and_topics(corpus_and_topics, word2vec_fuzzy_artmap_params, word2vec_vectorizer_types, experiments, run_notes)
     build_experiment_for_corpus_and_topics(corpus_and_topics, sbert_fuzzy_artmap_params, sbert_vectorizer_types, experiments, run_notes)
 
-    destination_path = os.path.join(os.path.dirname(__file__), "tar_model")
+    destination_path = os.path.join(os.path.dirname(__file__), "")
     params_file_name = f"{filename_prefix}_params.json"
     params_file_location = os.path.join(destination_path, params_file_name)
     # jsonpickle.set_encoder_options('simplejson', encoding='utf8')
@@ -125,7 +125,7 @@ down_sample_topics={
     "down-tr4": ["415", "417", "419", "407", "416", "412", "410", "403", "430", "414", "429", "420", "425", "402", "413", "404", "424", "428", "423", "427", "401", "409", "418", "431", "432", "406", "405", "426", "408", "433"]
 }
 
-active_learning_mode_for_experiments = "random" # "ranked" # or "random"
+active_learning_mode_for_experiments = "ranked" # or "random"
 # experiments = [
     # ("lemma_alpha", 0.95, 0.80, learning_rate_run, "vigilance .95 with slow recode beta 0.80 Reuters and 20 Newsgroups", active_learning_mode_for_experiments),
     # ("lemma_beta", 0.95, 0.85, learning_rate_run, "vigilance .95 with slow recode beta 0.85 Reuters and 20 Newsgroups", active_learning_mode_for_experiments),
@@ -134,18 +134,18 @@ active_learning_mode_for_experiments = "random" # "ranked" # or "random"
     # ("debug_run", 0.95, 1.0, learning_rate_run, "vigilance .95 with fast learn beta 1.0 Reuters, debug run", active_learning_mode_for_experiments)
 # ]
 
-# experiments = [
-#     ("rerun_alpha", 0.60, 0.75, re_run, "vigilance .95 with slow recode beta 0.80 Reuters and 20 Newsgroups", active_learning_mode_for_experiments),
+experiments = [
+    ("small_reuters_test_alpha", 0.95, 0.80, reuters_small_test, "vigilance .95 with slow recode beta 0.80 Reuters and 20 Newsgroups", active_learning_mode_for_experiments, False, 1),
 #     ("rerun_beta", 0.60, 1.0, re_run, "vigilance .95 with slow recode beta 0.85 Reuters and 20 Newsgroups", active_learning_mode_for_experiments),
 #     ("rerun_gamma", 0.90, 0.75, re_run, "vigilance .95 with slow recode beta 0.90 Reuters and 20 Newsgroups", active_learning_mode_for_experiments),
 #     ("rerun_delta", 0.90, 1.0, re_run, "vigilance .95 with slow recode beta 0.95 Reuters and 20 Newsgroups", active_learning_mode_for_experiments),
 #     ("rerun_epsilon", 0.95, 0.75, re_run, "vigilance .95 with slow recode beta 0.90 Reuters and 20 Newsgroups", active_learning_mode_for_experiments),
 #     ("rerun_zeta", 0.95, 1.0, re_run, "vigilance .95 with slow recode beta 0.95 Reuters and 20 Newsgroups", active_learning_mode_for_experiments),
-# ]
+]
 
 rho = 0.95
 beta = 1.0
-experiments = []
+# experiments = []
 
 prefixes = []
 newsgroups_prefix = "bravo_golf"
@@ -171,10 +171,11 @@ def build_exp_chunks(corpus, corpus_and_topics, param_prefix):
 
 # reuters_down_sample_prefix = "bravo_india"
 # athome_one_prefix = "kilo"
-athome_down_sample_prefix = "charlie_juliett"
+# athome_down_sample_prefix = "charlie_juliett"
 # build_exp_chunks("down-reuters", down_sample_topics, reuters_down_sample_prefix)
-build_exp_chunks("down-tr4", down_sample_topics, athome_down_sample_prefix)
+# build_exp_chunks("down-tr4", down_sample_topics, athome_down_sample_prefix)
 # build_exp_chunks("athome1", full_topics, athome_one_prefix)
+# build_exp_chunks("")
 
 # test_topics={
 #     "reuters-rcv1": ["M131"],
