@@ -35,7 +35,7 @@ topic_arn = getenv("TOPIC_ARN")
 
 min_worker_count = 1
 max_worker_count = 1
-worker_instance_type = "r6g.xlarge" # "r6g.2xlarge" #"r6g.4xlarge"
+worker_instance_type = "r6a.xlarge" # "r6g.2xlarge" #"r6g.4xlarge"
 worker_tag = "worker"
 worker_tmux_session = "worker"
 worker_instance_ids = []
@@ -62,9 +62,9 @@ leader_instance_id = None
 leader_instance_private_ip = None
 can_terminate_leader = False
 
-worker_volume_size = 15
-leader_volume_size = 35
-sidecar_volume_size = 35
+worker_volume_size = 50
+leader_volume_size = 50
+sidecar_volume_size = 50
 
 
 def sub_create_workers(ec2_resource, worker_count):
@@ -139,14 +139,14 @@ def start_workers(ec2_client):
     logger.info(f"received dns names for workers:\n{worker_dns_names}")
     with ThreadingGroup(*worker_dns_names, user=instance_username, connect_kwargs={"key_filename": ssh_key_location}) as worker_group:
         worker_group.run(f"tmux new -d -s {worker_tmux_session}")
-        worker_group.run(f"tmux send-keys -t {worker_tmux_session}:0 'cd auto-stop-tar/' ENTER")
+        worker_group.run(f"tmux send-keys -t {worker_tmux_session}:0 'cd explainable-tar/' ENTER")
         if args.update:
             logger.info("updating source on worker")
-            worker_group.run(f"tmux send-keys -t {worker_tmux_session}:0 'git checkout . && git reset && git clean -f && git pull origin fuzzy_artmap' ENTER")
+            worker_group.run(f"tmux send-keys -t {worker_tmux_session}:0 'git checkout . && git reset && git clean -f && git pull origin retrain' ENTER")
         worker_group.run(f"tmux send-keys -t {worker_tmux_session}:0 'source .venv/bin/activate' ENTER")
-        worker_group.run(f"tmux send-keys -t {worker_tmux_session}:0 'export PYTHONPATH=/home/ubuntu/auto-stop-tar/autostop/tar_framework:/home/ubuntu/auto-stop-tar/autostop/:/home/ubuntu/auto-stop-tar/' ENTER")
-        worker_group.run(f"tmux send-keys -t {worker_tmux_session}:0 'cd /home/ubuntu/auto-stop-tar/autostop/tar_framework/' ENTER")
-        worker_group.run(f"tmux send-keys -t {worker_tmux_session}:0 'python fuzzy_artmap_distributed_gpu.py -r {leader_instance_private_ip}:8786 -v' ENTER")    
+        worker_group.run(f"tmux send-keys -t {worker_tmux_session}:0 'export PYTHONPATH=/home/ubuntu/explainable-tar/explainable-tar/tar_framework:/home/ubuntu/explainable-tar/explainable-tar/:/home/ubuntu/explainable-tar/' ENTER")
+        worker_group.run(f"tmux send-keys -t {worker_tmux_session}:0 'cd /home/ubuntu/explainable-tar/explainable-tar/tar_framework/' ENTER")
+        worker_group.run(f"tmux send-keys -t {worker_tmux_session}:0 'python3 fuzzy_artmap_distributed_gpu.py -r {leader_instance_private_ip}:8786 -v' ENTER")    
     logger.info("Worker clients started")
 
 
@@ -213,19 +213,19 @@ def create_leader(ec2_resource, ec2_client):
         if args.update:
             logger.info("updating source on leader")
             with Connection(host=leader_instance_dns_name, user=instance_username, connect_kwargs={"key_filename": ssh_key_location}) as leader_connection:
-                leader_connection.run(f"cd auto-stop-tar/ && git checkout . && git reset && git clean -f && git pull origin fuzzy_artmap")
+                leader_connection.run(f"cd explainable-tar/ && git checkout . && git reset && git clean -f && git pull origin retrain")
 
 def start_leader():
     # start registrar
     with Connection(host=leader_instance_dns_name, user=instance_username, connect_kwargs={"key_filename": ssh_key_location}) as leader_connection:
         leader_connection.run(f"tmux new -d -s {leader_tmux_session}")
-        leader_connection.run(f"tmux send-keys -t {leader_tmux_session}:0 'cd auto-stop-tar/' ENTER")
+        leader_connection.run(f"tmux send-keys -t {leader_tmux_session}:0 'cd explainable-tar' ENTER")
         if args.update:
             logger.info("updating source on leader")
-            leader_connection.run(f"tmux send-keys -t {leader_tmux_session}:0 'git checkout . && git reset && git clean -f && git pull origin fuzzy_artmap' ENTER")
+            leader_connection.run(f"tmux send-keys -t {leader_tmux_session}:0 'git checkout . && git reset && git clean -f && git pull origin retrain' ENTER")
         leader_connection.run(f"tmux send-keys -t {leader_tmux_session}:0 'source .venv/bin/activate' ENTER")
-        leader_connection.run(f"tmux send-keys -t {leader_tmux_session}:0 'cd autostop' ENTER")
-        leader_connection.run(f"tmux send-keys -t {leader_tmux_session}:0 'python registrar.py' ENTER")
+        leader_connection.run(f"tmux send-keys -t {leader_tmux_session}:0 'cd explainable-tar' ENTER")
+        leader_connection.run(f"tmux send-keys -t {leader_tmux_session}:0 'python3 registrar.py' ENTER")
 
     logger.info("leader registrar started")
 
@@ -274,7 +274,7 @@ def create_cluster():
 
 def start_run(params_file_location: str, total_runs: int, run_number: int):
     params_file_name = path.basename(params_file_location)
-    destination_path = f"auto-stop-tar/autostop/tar_model/{params_file_name}"
+    destination_path = f"explainable-tar/explainable-tar/{params_file_name}"
     with Connection(host=leader_instance_dns_name, user=instance_username, connect_kwargs={"key_filename": ssh_key_location}) as leader_connection:
         # upload params file to leader
         logger.info(f"Uploading parameter file {params_file_location} to ~/{destination_path}")
@@ -282,9 +282,9 @@ def start_run(params_file_location: str, total_runs: int, run_number: int):
         logger.info("params uploaded & starting remote run")
         run_start_time = datetime.now()
         if not args.autotar:
-            leader_connection.run(f"source ~/auto-stop-tar/.venv/bin/activate && cd ~/auto-stop-tar/ && python ~/auto-stop-tar/autostop/tar_model/fuzzy_artmap_tar.py -p {params_file_name}")
+            leader_connection.run(f"source ~/explainable-tar/.venv/bin/activate && cd ~/explainable-tar && python3 ~/explainable-tar/explainable-tar/fuzzy_artmap_tar.py -p {params_file_name}")
         else:
-            leader_connection.run(f"source ~/auto-stop-tar/.venv/bin/activate && cd ~/auto-stop-tar/ && python ~/auto-stop-tar/autostop/tar_model/autotar.py -p {params_file_name}")
+            leader_connection.run(f"source ~/explainable-tar/.venv/bin/activate && cd ~/explainable-tar && python ~/explainable-tar/explainable-tar/autotar.py -p {params_file_name}")
         run_stop_time = datetime.now()
         run_duration = run_stop_time - run_start_time
         run_type = "fuzzy"
@@ -305,10 +305,10 @@ def save_results(params_path):
         for worker_index, worker_dns_name in enumerate(worker_dns_names):
             with Connection(host=worker_dns_name, user=instance_username, connect_kwargs={"key_filename": ssh_key_location}) as worker_connection:
                 logger.info(f"getting worker {worker_index} log file to {str(local_logs_path / f'worker_{worker_index}_log.log')}")
-                worker_connection.get("/home/ubuntu/auto-stop-tar/autostop/tar_framework/fuzzy_artmap_gpu_distributed.log", str(local_logs_path / f"worker_{worker_index}_log.log"))
+                worker_connection.get("/home/ubuntu/explainable-tar/explainable-tar/tar_framework/fuzzy_artmap_gpu_distributed.log", str(local_logs_path / f"worker_{worker_index}_log.log"))
                 try:
                     logger.info("removing logs from worker")
-                    worker_connection.run("rm -f /home/ubuntu/auto-stop-tar/autostop/tar_framework/fuzzy_artmap_gpu_distributed.log")
+                    worker_connection.run("rm -f /home/ubuntu/explainable-tar/explainable-tar/tar_framework/fuzzy_artmap_gpu_distributed.log")
                 except Exception as e:
                     logger.warning(f"Error removing logs from workers: {e}")                
     except Exception as e:
@@ -326,8 +326,8 @@ def save_results(params_path):
         try:
             logger.info("getting logs from leader")
             if not args.autotar:
-                leader_connection.get("/home/ubuntu/auto-stop-tar/fuzzy_artmap_gpu_distributed.log", str(local_logs_path / f"leader_fuzzy_artmap_gpu_distributed.log"))
-            leader_connection.get("/home/ubuntu/auto-stop-tar/auto_tar.log", str(local_logs_path / f"auto_tar.log"))
+                leader_connection.get("/home/ubuntu/explainable-tar/fuzzy_artmap_gpu_distributed.log", str(local_logs_path / f"leader_fuzzy_artmap_gpu_distributed.log"))
+            leader_connection.get("/home/ubuntu/explainable-tar/auto_tar.log", str(local_logs_path / f"auto_tar.log"))
             logger.info("compressing and saving logs to S3")
             logs_archive_file_name = f"{run_prefix}keepsake_results_{args.id}_{run_timestamp}_logs.tar.gz"
             with tarfile.open(logs_archive_file_name, mode="w:gz") as logs_archive:
@@ -342,8 +342,8 @@ def save_results(params_path):
         finally:
             try:
                 logger.info("removing logs from leader")
-                leader_connection.run("rm -f /home/ubuntu/auto-stop-tar/auto_tar.log")
-                leader_connection.run("rm -f /home/ubuntu/auto-stop-tar/fuzzy_artmap_gpu_distributed.log")
+                leader_connection.run("rm -f /home/ubuntu/explainable-tar/auto_tar.log")
+                leader_connection.run("rm -f /home/ubuntu/explainable-tar/fuzzy_artmap_gpu_distributed.log")
             except Exception as e:
                 logger. warning(f"Error removing logs from leader: {e}")
             
@@ -351,14 +351,14 @@ def save_results(params_path):
         results_archive_file_name = f"{run_prefix}keepsake_results_{args.id}_{run_timestamp}.tar.gz"
         s3_upload_command = f"aws s3 cp {results_archive_file_name} s3://{results_bucket}"
         logger.info("compressing and saving results to S3") 
-        save_results_result = leader_connection.run(f"cd ~/auto-stop-tar/ && tar -czf {results_archive_file_name} ./.keepsake/ && {s3_upload_command}")
+        save_results_result = leader_connection.run(f"cd ~/explainable-tar && tar -czf {results_archive_file_name} ./.keepsake/ && {s3_upload_command}")
         logger.info(f"Save succeeded and delete keepsake directory? {save_results_result.ok}")
         
         if save_results_result.ok:
-            leader_connection.run(f"cd ~/auto-stop-tar/ && rm -f *.gz && rm -rf ./.keepsake/ && cd models && rm -f *.*")
+            leader_connection.run(f"cd ~/explainable-tar && rm -f *.gz && rm -rf ./.keepsake/ && cd models && rm -f *.*")
         else:
-            leader_connection.run(f"cd ~/auto-stop-tar/ && mv .keepsake {run_prefix}_keepsake")
-            logger.warning(f"results saved on leader to: ~/auto-stop-tar/{run_prefix}_keepsake")
+            leader_connection.run(f"cd ~/explainable-tar && mv .keepsake {run_prefix}_keepsake")
+            logger.warning(f"results saved on leader to: ~/explainable-tar/{run_prefix}_keepsake")
         
         return save_results_result.ok
 
@@ -455,21 +455,21 @@ def bootstrap_sidecar(prefixes):
     with Connection(host=sidecar_dns_name, user=instance_username, connect_kwargs={"key_filename": ssh_key_location}) as sidecar_connection:
         # upload params file to sidecar
         for prefix in prefixes:
-            params_path = f"autostop/tar_model/{prefix}_params.json"
+            params_path = f"explainable-tar/{prefix}_params.json"
             params_file_name = path.basename(params_path)
-            destination_path = f"auto-stop-tar/autostop/tar_model/{params_file_name}"
+            destination_path = f"explainable-tar/explainable-tar/{params_file_name}"
             logger.info(f"Uploading parameter file {params_path} to ~/{destination_path}")
             sidecar_connection.put(params_path, destination_path)
 
         # upload cluster manager
         cluster_manager_path = path.abspath(__file__)
-        cluster_manager_destination = f"auto-stop-tar/cluster_manager.py"
+        cluster_manager_destination = f"explainable-tar/cluster_manager.py"
         logger.info(f"Uploading cluster manager {cluster_manager_path} to ~/{cluster_manager_destination}")
         sidecar_connection.put(cluster_manager_path, cluster_manager_destination)
 
         # read & write updated env file
         env_update_path = f"{os.getcwd()}/{settings_file}_update"
-        env_destination = f"auto-stop-tar/{settings_file}"
+        env_destination = f"explainable-tar/{settings_file}"
         with open(f"{os.getcwd()}/{settings_file}", mode="r") as env_file, open(env_update_path, mode="w+") as updated_env_file:
             for line in env_file:
                 if "SSH_KEY" not in line:
@@ -477,7 +477,7 @@ def bootstrap_sidecar(prefixes):
                 else:
                     parts = line.split("=")
                     ssh_file_name = path.basename(parts[1].rstrip())
-                    ssh_destination = f"/home/ubuntu/auto-stop-tar/{ssh_file_name}"
+                    ssh_destination = f"/home/ubuntu/explainable-tar/{ssh_file_name}"
                     updated_env_file.write(f"{parts[0]}={ssh_destination}\n")
                     logger.info(f"Uploading ssh_key {parts[1].rstrip()} to {ssh_destination}")
                     sidecar_connection.put(parts[1].rstrip(), ssh_destination)
@@ -486,10 +486,10 @@ def bootstrap_sidecar(prefixes):
         sidecar_connection.put(env_update_path, env_destination)
         logger.info("Sidecar prepared!")
         logger.info(f"run command:\nssh -i {ssh_key_location} ubuntu@{sidecar_information['Reservations'][0]['Instances'][0]['PublicIpAddress']}")
-        logger.info(f"follow on commands\ntmux new -d -s cluster_manager && tmux attach -t cluster_manager\ncd auto-stop-tar/ && source .venv/bin/activate\npython ./cluster_manager.py -i {args.id} -w 4 -t\nor\npython ./cluster_manager.py -i {args.id} -a -t")
+        logger.info(f"follow on commands\ntmux new -d -s cluster_manager && tmux attach -t cluster_manager\ncd explainable-tar/ && source .venv/bin/activate\npython ./cluster_manager.py -i {args.id} -w 4 -t\nor\npython ./cluster_manager.py -i {args.id} -t")
 
 if __name__ == "__main__":
-    # "args": ["-p", "~/auto-stop-tar/autostop/tar_model/params.json", "-i", "test_run", "-w", "4", "-t", "--update"]
+    # "args": ["-p", "~/explainable-tar/explainable-tar/params.json", "-i", "test_run", "-w", "4", "-t", "--update"]
     arg_parser = ArgumentParser()
     arg_parser.add_argument("-i", "--id", help="id to tag cluster", required=True)
     arg_parser.add_argument("-c", "--connect", help="connect to existing cluster with 'id'", default=False, type=bool, action=BooleanOptionalAction)
@@ -505,7 +505,7 @@ if __name__ == "__main__":
         max_worker_count = args.workers
         min_worker_count = args.workers
 
-    prefixes = ["charlie_juliett_0"]
+    prefixes = ["alpha_alpha_0", "alpha_alpha_1", "alpha_alpha_2", "alpha_alpha_3", "alpha_alpha_4", "alpha_alpha_5", "alpha_alpha_6", "alpha_alpha_7", "alpha_alpha_8", "alpha_alpha_9", "alpha_alpha_10", "alpha_alpha_11", "alpha_alpha_12", "alpha_alpha_13", "alpha_alpha_14", "alpha_alpha_15", "alpha_alpha_16", "alpha_alpha_17", "alpha_alpha_18", "alpha_alpha_19", "alpha_alpha_20"]
     try:
         if args.bootstrap:
             bootstrap_sidecar(prefixes)
@@ -527,7 +527,7 @@ if __name__ == "__main__":
 
         number_of_prefixes = len(prefixes)
         for prefix_number, prefix in enumerate(prefixes):
-            params_path = f"autostop/tar_model/{prefix}_params.json"
+            params_path = f"explainable-tar/{prefix}_params.json"
             last_param_path = params_path
             
             logger.info(f"starting run: {params_path}")

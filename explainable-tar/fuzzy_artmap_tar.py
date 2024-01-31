@@ -286,8 +286,11 @@ def get_git_revision_hash() -> str:
 
 def as_enum(d):
     if "__enum__" in d:
-        _, member = d["__enum__"].split(".")
-        return getattr(VectorizerType, member)
+        enum_name, member = d["__enum__"].split(".")
+        if enum_name == "VectorizerType":
+            return getattr(VectorizerType, member)
+        elif enum_name == "ProcessingMode":
+            return getattr(ProcessingMode, member)
     elif "__np__" in d:
         return getattr(np, d["__np__"])
     else:
@@ -335,7 +338,7 @@ if __name__ == '__main__':
                                             "corpus_params": corpus_params, 
                                             "vectorizer_type": experiment_params["vectorizer_type"].name, 
                                             "vectorizer_params": json.dumps(experiment_params["vectorizer_params"], cls=EnumEncoder), 
-                                            "classifier_params": fuzzy_artmap_params, 
+                                            "classifier_params": json.dumps(fuzzy_artmap_params, cls=EnumEncoder), 
                                             "random_state": json.dumps(random.getstate()), 
                                             "run_notes": experiment_params["run_notes"],
                                             "git_revision_hash": git_revision_hash,
